@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Vividness Rating Task</title>
+
+  <script src="https://unpkg.com/jspsych@8.2.2"></script>
+  <script src="https://unpkg.com/fabric@7.1.0/dist/index.min.js"></script>
+
+  <script src="https://unpkg.com/@jspsych/plugin-preload@2.1.0"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-html-button-response@2.1.0"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-canvas-keyboard-response@1.1.3"></script>
+  <script src="https://unpkg.com/@jspsych/plugin-survey-html-form@2.1.0"></script>
+
+  <link href="https://unpkg.com/jspsych@8.2.2/css/jspsych.css" rel="stylesheet" type="text/css" />
+</head>
+<body></body>
+
+<script>
+  const jsPsych = initJsPsych({
+    on_finish: () => {
+      jsPsych.data.displayData();
+      jsPsych.data.get().localSave('csv', 'vividness_test.csv');
+    }
+  });
+
+  const canvas_size = [400, 400];
+  const noise_imgs_dim = [250, 250];
+  const single_frame_duration = 100;
+  const dynamic_noise_duration = 2000;
+  const n_trials = 5;
+
+  const vividness_opacities = [0.12, 0.28, 0.44, 0.60, 0.78];
+
+  // PRELOAD
+  const noise_files = [];
+  for (let i = 0; i < 50; i++) {
+    noise_files.push(`imgs/rand_noise_${i}.png`);
+  }
+
+  const preload = {
+    type: jsPsychPreload,
+    images: [...noise_files, 'imgs/gabor_left.png', 'imgs/gabor_right.png']
+  };
+
+
+  // noise images
+  let fabric_noise_imgs = [];
+
+  for (let i = 0; i < 50; i++) {
+    const img = new Image();
+    img.src = `imgs/rand_noise_${i}.png`;
+
+    const fabric_img = new fabric.Image(img, {
+      left: 0,
+      top: 0,
+      width: noise_imgs_dim[0],
+      height: noise_imgs_dim[1],
+      originX: 'left',
+      originY: 'top'
+    });
+
+    fabric_img.scaleToWidth(canvas_size[0]);
+    fabric_noise_imgs.push(fabric_img);
+  }
+
+  // orientaties
+  let trial_orientations = jsPsych.randomization.repeat(['left', 'right'], Math.ceil(n_trials / 2));
+  trial_orientations = jsPsych.randomization.shuffle(trial_orientations).slice(0, n_trials);
+
+  function getGaborFile(orientation) {
+    return orientation === 'left' ? 'imgs/gabor_left.png' : 'imgs/gabor_right.png';
+  }
+
+  // instruction
+  function make_instruction_trial(trial_index, orientation) {
+    return {
+      type: jsPsychHtmlButtonResponse,
+      stimulus: `
+        <div style="max-width:800px; margin:0 auto; text-align:center;">
+          <p>Beeld het volgende figuur zo duidelijk mogelijk in.</p>
+          <img src="${getGaborFile(orientation)}" style="width:220px; height:220px; margin:20px 0;">
+          <p>Beeld het figuur in terwijl je naar de noise op het volgende scherm kijkt.</p>
+        </div>
+      `,
+      choices: ['Start'],
+      data: {
+        phase: "instruction",
+        trial_index: trial_index,
+        imagined_tilt: orientation
+      }
+    };
+  }
+
+  // noise
+  function make_noise_trial(trial_index, orientation) {
+    let interval_ID;
+
+    return {
+      type: jsPsychCanvasKeyboardResponse,
+      canvas_size: canvas_size,
+      trial_duration: dynamic_noise_duration,
+      choices: "NO_KEYS",
+      stimulus: function() {
+        const shuffled_noise = jsPsych.randomization.shuffle([...fabric_noise_imgs]);
+
+        const canvas = new fabric.StaticCanvas("jspsych-canvas-stimulus", {
+          backgroundColor: 'white'
+        });
+
+        let nth_frame = 0;
+
+        interval_ID = setInterval(() => {
+          canvas.remove(...canvas.getObjects());
+          canvas.add(shuffled_noise[nth_frame]);
+          canvas.renderAll();
+          nth_frame = (nth_frame + 1) % shuffled_noise.length;
+        }, single_frame_duration);
+      },
+      data: {
+        phase: "noise",
+        trial_index: trial_index,
+        imagined_tilt: orientation
+      },
+      on_finish: function() {
+        clearInterval(interval_ID);
+      }
+    };
+  }
+  // vividness rating jpsych
+  function make_vividness_trial(trial_index, orientation) {
+    const gabor_file = getGaborFile(orientation);
+
+    return {
+      type: jsPsychSurveyHtmlForm,
+      preamble: `
+        <div style="text-align:center; max-width:1000px; margin:0 auto;">
+          <p style="font-size:22px;">Hoe duidelijk was jouw inbeedling?</p>
+          <p>Selecteer het voorbeeld dat het beste meest op jouw inbeelding lijkt.</p>
+        </div>
+      `,
+      html: `
+        <div style="
+          display:flex;
+          justify-content:center;
+          gap:20px;
+          flex-wrap:wrap;
+          max-width:1100px;
+          margin:20px auto 0 auto;
+        ">
+
+          <label style="cursor:pointer; text-align:center;">
+            <input type="radio" name="vividness" value="1" required>
+            <div style="
+              position:relative;
+              width:140px;
+              height:140px;
+              margin-top:8px;
+              border:2px solid #bbb;
+              border-radius:8px;
+              overflow:hidden;
+              background-image:url('imgs/rand_noise_0.png');
+              background-size:cover;
+            ">
+              <img src="${gabor_file}"
+                   style="position:absolute; top:0; left:0; width:100%; height:100%; opacity:0.12;">
+            </div>
+            <div style="margin-top:8px;">1</div>
+          </label>
+
+          <label style="cursor:pointer; text-align:center;">
+            <input type="radio" name="vividness" value="2" required>
+            <div style="
+              position:relative;
+              width:140px;
+              height:140px;
+              margin-top:8px;
+              border:2px solid #bbb;
+              border-radius:8px;
+              overflow:hidden;
+              background-image:url('imgs/rand_noise_0.png');
+              background-size:cover;
+            ">
+              <img src="${gabor_file}"
+                   style="position:absolute; top:0; left:0; width:100%; height:100%; opacity:0.28;">
+            </div>
+            <div style="margin-top:8px;">2</div>
+          </label>
+
+          <label style="cursor:pointer; text-align:center;">
+            <input type="radio" name="vividness" value="3" required>
+            <div style="
+              position:relative;
+              width:140px;
+              height:140px;
+              margin-top:8px;
+              border:2px solid #bbb;
+              border-radius:8px;
+              overflow:hidden;
+              background-image:url('imgs/rand_noise_0.png');
+              background-size:cover;
+            ">
+              <img src="${gabor_file}"
+                   style="position:absolute; top:0; left:0; width:100%; height:100%; opacity:0.44;">
+            </div>
+            <div style="margin-top:8px;">3</div>
+          </label>
+
+          <label style="cursor:pointer; text-align:center;">
+            <input type="radio" name="vividness" value="4" required>
+            <div style="
+              position:relative;
+              width:140px;
+              height:140px;
+              margin-top:8px;
+              border:2px solid #bbb;
+              border-radius:8px;
+              overflow:hidden;
+              background-image:url('imgs/rand_noise_0.png');
+              background-size:cover;
+            ">
+              <img src="${gabor_file}"
+                   style="position:absolute; top:0; left:0; width:100%; height:100%; opacity:0.60;">
+            </div>
+            <div style="margin-top:8px;">4</div>
+          </label>
+
+          <label style="cursor:pointer; text-align:center;">
+            <input type="radio" name="vividness" value="5" required>
+            <div style="
+              position:relative;
+              width:140px;
+              height:140px;
+              margin-top:8px;
+              border:2px solid #bbb;
+              border-radius:8px;
+              overflow:hidden;
+              background-image:url('imgs/rand_noise_0.png');
+              background-size:cover;
+            ">
+              <img src="${gabor_file}"
+                   style="position:absolute; top:0; left:0; width:100%; height:100%; opacity:0.78;">
+            </div>
+            <div style="margin-top:8px;">5</div>
+          </label>
+
+        </div>
+      `,
+      button_label: "Continue",
+      data: {
+        phase: "vividness_rating",
+        trial_index: trial_index,
+        imagined_tilt: orientation
+      },
+      on_finish: function(data) {
+        const response = data.response;
+        data.vividness_rating = Number(response.vividness);
+        data.selected_opacity = vividness_opacities[data.vividness_rating - 1];
+      }
+    };
+  }
+  //timeline
+  const timeline = [preload];
+
+  for (let t = 0; t < n_trials; t++) {
+    const orientation = trial_orientations[t];
+    const trial_index = t + 1;
+
+    timeline.push(make_instruction_trial(trial_index, orientation));
+    timeline.push(make_noise_trial(trial_index, orientation));
+    timeline.push(make_vividness_trial(trial_index, orientation));
+  }
+
+  jsPsych.run(timeline);
+</script>
+</html>

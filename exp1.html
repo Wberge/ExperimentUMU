@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Reality vs Imagination</title>
+
+    <script src="https://unpkg.com/jspsych@8.2.2"></script>
+    <script src="https://unpkg.com/fabric@7.1.0/dist/index.min.js"></script>
+
+    <script src="https://unpkg.com/@jspsych/plugin-call-function@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-image-button-response@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-slider-response@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-survey-html-form@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-image-slider-response@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-instructions@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-preload@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-image-keyboard-response@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-animation@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-canvas-keyboard-response@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych-contrib/plugin-pipe"></script>
+
+    <script src="jspsych-psychophysics.js"></script>
+    <script src="fabric.js"></script>
+
+    <link href="https://unpkg.com/jspsych@8.2.2/css/jspsych.css" rel="stylesheet" type="text/css" />
+  </head>
+
+  <body></body>
+
+  <script>
+    const jsPsych = initJsPsych({
+      on_finish: () => {
+        jsPsych.data.get().localSave('csv', filename);
+        jsPsych.data.displayData();
+      }
+    });
+
+    const subject_id = jsPsych.randomization.randomID(10);
+    const filename = `${subject_id}.csv`;
+
+    jsPsych.data.addProperties({
+      participantID: subject_id,
+      filename: filename,
+      experiment: "reality_vs_imagination_3choice_single_imagery_instruction",
+      n_total_trials: "time_based",
+      task_duration_ms: 180000,
+      stimulus_opacity_used: 0.11
+    });
+
+    // Experiment parameters
+    let dynamic_noise_duration = 3000;   // each trial lasts max 3 seconds
+    let single_frame_duration = 100;
+    let canvas_size = [400, 400];
+    let inter_trial_interval = 800;
+    const total_task_duration = 3 * 60 * 1000; // 3 minutes total main task
+
+    // Runtime variables
+    let main_task_start_time = null;
+    let running_trial_number = 0;
+    let current_external_condition = null;
+
+    // Stimulus parameters
+    const noise_imgs_dim = [250, 250];
+    const gabor_img_dim = [250, 250];
+    const gabor_scale = 1;
+    const target_opacity = 0.11;
+
+    // Noise images
+    let noise_files = [];
+    let fabric_noise_imgs = [];
+
+    for (let i = 0; i < 50; i++) {
+      let img_src = 'imgs/rand_noise_' + i + '.png';
+      noise_files.push(img_src);
+
+      let Img = new Image();
+      Img.src = img_src;
+
+      let fabric_img = new fabric.Image(Img, {
+        left: 0,
+        top: 0,
+        width: noise_imgs_dim[0],
+        height: noise_imgs_dim[1],
+        originX: 'left',
+        originY: 'top'
+      });
+
+      fabric_img.scaleToWidth(canvas_size[0]);
+      fabric_noise_imgs.push(fabric_img);
+    }
+
+    // Gabors
+    let gabor_left_img = new Image();
+    gabor_left_img.src = 'imgs/gabor_left.png';
+
+    let gabor_right_img = new Image();
+    gabor_right_img.src = 'imgs/gabor_right.png';
+
+    let gabor_img_properties = {
+      left: canvas_size[0] / 2,
+      top: canvas_size[1] / 2,
+      width: gabor_img_dim[0],
+      height: gabor_img_dim[1],
+      opacity: 1,
+      originX: 'center',
+      originY: 'center'
+    };
+
+    let gabor_left_fabric_img = new fabric.Image(gabor_left_img, gabor_img_properties);
+    let gabor_right_fabric_img = new fabric.Image(gabor_right_img, gabor_img_properties);
+
+    gabor_left_fabric_img.scaleToWidth(canvas_size[0] * gabor_scale);
+    gabor_right_fabric_img.scaleToWidth(canvas_size[0] * gabor_scale);
+
+    const preload = {
+      type: jsPsychPreload,
+      images: [...noise_files, 'imgs/gabor_left.png', 'imgs/gabor_right.png']
+    };
+
+    function key_to_response(key_press) {
+      if (key_press === 'ArrowLeft') return 'left';
+      if (key_press === 'ArrowRight') return 'right';
+      if (key_press === 'ArrowUp' || key_press === 'ArrowDown') return 'absent';
+      return 'no_response';
+    }
+
+    function get_correct_response_label(external_condition) {
+      if (external_condition === 'left') return 'left';
+      if (external_condition === 'right') return 'right';
+      if (external_condition === 'absent') return 'absent';
+      return 'undefined';
+    }
+
+    function get_congruency(imagery_condition, external_condition) {
+      if (external_condition === 'absent') return 'absent_external';
+      if (imagery_condition === external_condition) return 'congruent';
+      return 'incongruent';
+    }
+
+    function sample_external_condition() {
+      return jsPsych.randomization.sampleWithoutReplacement(['left', 'right', 'absent'], 1)[0];
+    }
+
+    // One imagery instruction for the entire experiment
+    const global_imagery_condition = jsPsych.randomization.sampleWithoutReplacement(['left', 'right'], 1)[0];
+
+    function make_global_imagery_instruction(imagery_condition) {
+      let stimulus_html =
+        "<div style='display:flex; justify-content:center; gap:40px; align-items:center; margin-bottom:20px;'>" +
+          "<div style='text-align:center;'>" +
+            "<img src='imgs/gabor_left.png' style='width:160px;'><p>Left</p>" +
+          "</div>" +
+          "<div style='text-align:center;'>" +
+            "<img src='imgs/gabor_right.png' style='width:160px;'><p>Right</p>" +
+          "</div>" +
+        "</div>";
+
+      let instruction_text =
+        imagery_condition === 'left'
+          ? "<p>For <strong>all upcoming trials</strong>, keep trying to imagine the <strong>left-tilted</strong> grating in the noise.</p>"
+          : "<p>For <strong>all upcoming trials</strong>, keep trying to imagine the <strong>right-tilted</strong> grating in the noise.</p>";
+
+      return {
+        type: jsPsychHtmlButtonResponse,
+        stimulus:
+          stimulus_html +
+          instruction_text +
+          "<p>Your task is still to judge what <strong>external</strong> stimulus was actually present.</p>" +
+          "<p><strong>Left arrow</strong> = external left grating</p>" +
+          "<p><strong>Right arrow</strong> = external right grating</p>" +
+          "<p><strong>Up arrow or Down arrow</strong> = no external grating</p>" +
+          "<p>You may respond while the stimulus is visible.</p>",
+        choices: ['Start'],
+        data: {
+          phase: 'global_imagery_instruction',
+          imagery_condition: imagery_condition
+        }
+      };
+    }
+
+    // Generic trial that reads current_external_condition and running_trial_number
+    function make_dynamic_trial(imagery_condition, gabor_opacity, noise_duration = null) {
+      let interval_ID;
+      let timestamp;
+      let delta_times = [];
+      let gabor_fabric_img = null;
+
+      return {
+        type: jsPsychCanvasKeyboardResponse,
+        canvas_size: canvas_size,
+        trial_duration: noise_duration,
+        stimulus: function(c) {
+          const external_condition = current_external_condition;
+
+          if (external_condition === 'left') {
+            gabor_fabric_img = gabor_left_fabric_img;
+          } else if (external_condition === 'right') {
+            gabor_fabric_img = gabor_right_fabric_img;
+          } else {
+            gabor_fabric_img = null;
+          }
+
+          let shuffled_noise_imgs = jsPsych.randomization.shuffleNoRepeats([...fabric_noise_imgs]);
+
+          timestamp = performance.now();
+          let canvas = new fabric.StaticCanvas("jspsych-canvas-stimulus", {
+            backgroundColor: 'cyan',
+            centeredScaling: true
+          });
+
+          let nth_frame = 0;
+
+          interval_ID = setInterval(() => {
+            canvas.remove(...canvas.getObjects());
+
+            canvas.add(shuffled_noise_imgs[nth_frame]);
+            nth_frame = (nth_frame + 1) % shuffled_noise_imgs.length;
+
+            if (external_condition !== 'absent' && gabor_fabric_img !== null) {
+              gabor_fabric_img.opacity = gabor_opacity;
+              canvas.add(gabor_fabric_img);
+            }
+
+            canvas.renderAll();
+
+            delta_times.push(Math.round(performance.now() - timestamp));
+            timestamp = performance.now();
+          }, single_frame_duration);
+        },
+        choices: ['ArrowLeft', 'ArrowDown', 'ArrowUp', 'ArrowRight'],
+        response_ends_trial: true,
+        data: function() {
+          return {
+            phase: 'main_trial',
+            trial_number: running_trial_number,
+            imagery_condition: imagery_condition,
+            external_condition: current_external_condition,
+            gabor_opacity: current_external_condition === 'absent' ? 0 : gabor_opacity,
+            correct_response: get_correct_response_label(current_external_condition),
+            congruency: get_congruency(imagery_condition, current_external_condition),
+            noise_duration: noise_duration,
+            single_frame_duration: single_frame_duration
+          };
+        },
+        on_finish: function(data) {
+          clearInterval(interval_ID);
+
+          data.frame_times = JSON.stringify(delta_times);
+          data.n_recorded_frames = delta_times.length;
+          data.response_label = key_to_response(data.response);
+          data.correct = data.response_label === data.correct_response ? 1 : 0;
+          data.elapsed_main_task_time_ms = Math.round(performance.now() - main_task_start_time);
+        }
+      };
+    }
+
+    // Automatic divider between trials, no response needed
+    function make_trial_divider() {
+      return {
+        type: jsPsychHtmlKeyboardResponse,
+        stimulus: "<div style='font-size:28px; text-align:center;'>+</div>",
+        choices: "NO_KEYS",
+        trial_duration: inter_trial_interval,
+        data: function() {
+          return {
+            phase: 'trial_divider',
+            upcoming_trial_number: running_trial_number
+          };
+        }
+      };
+    }
+
+    const welcome = {
+      type: jsPsychHtmlButtonResponse,
+      stimulus:
+        "<h2>Welcome</h2>" +
+        "<p>In this task, you will imagine one grating orientation throughout the experiment.</p>" +
+        "<p>On each trial, you will see visual noise. Sometimes a faint left grating will be present, sometimes a faint right grating, and sometimes no grating will be present.</p>" +
+        "<p>Your job is to decide what external stimulus was actually present.</p>",
+      choices: ['Continue'],
+      data: { phase: 'general_instruction' }
+    };
+
+    const response_instruction = {
+      type: jsPsychHtmlButtonResponse,
+      stimulus:
+        "<h3>Response keys</h3>" +
+        "<p><strong>Left arrow</strong> = I think there was an external left-tilted grating</p>" +
+        "<p><strong>Right arrow</strong> = I think there was an external right-tilted grating</p>" +
+        "<p><strong>Up arrow or Down arrow</strong> = I think there was no external grating</p>" +
+        "<p>You may respond while the stimulus is still visible.</p>",
+      choices: ['Continue'],
+      data: { phase: 'general_instruction' }
+    };
+
+    const start_main = {
+      type: jsPsychHtmlButtonResponse,
+      stimulus:
+        "<p>You will now begin the main task.</p>" +
+        "<p>The task will last <strong>3 minutes</strong>.</p>" +
+        "<p>Some people may complete more trials than others depending on how quickly they respond.</p>",
+      choices: ['Start task'],
+      data: { phase: 'start_main' }
+    };
+
+    const mark_main_task_start = {
+      type: jsPsychCallFunction,
+      func: function() {
+        main_task_start_time = performance.now();
+        running_trial_number = 0;
+      },
+      data: { phase: 'mark_main_task_start' }
+    };
+
+    const end_screen = {
+      type: jsPsychHtmlButtonResponse,
+      stimulus:
+        "<h3>Finished</h3>" +
+        "<p>The experiment is complete.</p>" +
+        "<p>Your data will now be saved as a CSV file.</p>",
+      choices: ['Finish'],
+      data: { phase: 'end_screen' }
+    };
+
+    // One timed trial cycle:
+    // 1. increment counter
+    // 2. optional divider
+    // 3. sample external condition
+    // 4. run one trial
+    const timed_main_task = {
+      timeline: [
+        {
+          type: jsPsychCallFunction,
+          func: function() {
+            running_trial_number++;
+          },
+          data: { phase: 'increment_trial_counter' }
+        },
+        {
+          timeline: [make_trial_divider()],
+          conditional_function: function() {
+            return running_trial_number > 1;
+          }
+        },
+        {
+          type: jsPsychCallFunction,
+          func: function() {
+            current_external_condition = sample_external_condition();
+          },
+          data: function() {
+            return {
+              phase: 'sample_external_condition',
+              trial_number: running_trial_number,
+              sampled_external_condition: current_external_condition
+            };
+          }
+        },
+        make_dynamic_trial(
+          global_imagery_condition,
+          target_opacity,
+          dynamic_noise_duration
+        )
+      ],
+      loop_function: function() {
+        const elapsed = performance.now() - main_task_start_time;
+        return elapsed < total_task_duration;
+      }
+    };
+
+    let timeline = [];
+    timeline.push(preload);
+    timeline.push(welcome);
+    timeline.push(response_instruction);
+    timeline.push(make_global_imagery_instruction(global_imagery_condition));
+    timeline.push(start_main);
+    timeline.push(mark_main_task_start);
+    timeline.push(timed_main_task);
+    timeline.push(end_screen);
+
+    jsPsych.run(timeline);
+  </script>
+</html>

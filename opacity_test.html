@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Opacity Staircase Calibration (Analysis-Friendly)</title>
+
+    <!-- Core libraries -->
+    <script src="https://unpkg.com/jspsych@8.2.2"></script>
+    <script src="https://unpkg.com/fabric@7.1.0/dist/index.min.js"></script>
+
+    <!-- jsPsych plugins used -->
+    <script src="https://unpkg.com/@jspsych/plugin-preload@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-button-response@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-html-keyboard-response@2.1.0"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-canvas-keyboard-response@1.1.3"></script>
+    <script src="https://unpkg.com/@jspsych/plugin-call-function@2.1.0"></script>
+
+    <link href="https://unpkg.com/jspsych@8.2.2/css/jspsych.css" rel="stylesheet" type="text/css" />
+  </head>
+  <body></body>
+
+  <script>
+    // ----------------------------
+    // jsPsych init + saving
+    // ----------------------------
+    const jsPsych = initJsPsych({
+      on_finish: () => {
+        const filename = `opacity_staircase_${subject_id}.csv`;
+        jsPsych.data.get().localSave("csv", filename);
+        jsPsych.data.displayData();
+      }
+    });
+
+    const subject_id = jsPsych.randomization.randomID(10);
+    jsPsych.data.addProperties({ subject_id });
+
+    // ----------------------------
+    // Experiment parameters
+    // ----------------------------
+    const canvas_size = [400, 400];
+    const noise_imgs_dim = [250, 250];
+    const gabor_img_dim = [250, 250];
+
+    const single_frame_duration = 100; // ms between noise frames
+    const noise_duration = 2000;        // ms per trial
+
+    // Staircase settings (2-down 1-up targets ~70.7% correct in 2AFC)
+    const N_TRIALS_TOTAL = 60;
+    const N_STAIRCASES = 2;
+    const N_TRIALS_PER_STAIRCASE = Math.floor(N_TRIALS_TOTAL / N_STAIRCASES);
+
+    // Narrowed range for calibration
+    const OP_MIN = 0.02;
+    const OP_MAX = 0.30;
+    const OP_START = 0.15;
+
+    // Step size schedule by number of reversals (adaptive step reduction)
+    function stepSizeForReversals(nReversals) {
+      if (nReversals < 2) return 0.03;
+      if (nReversals < 4) return 0.02;
+      return 0.01;
+    }
+
+    function clamp(x, lo, hi) {
+      return Math.max(lo, Math.min(hi, x));
+    }
+
+    // ----------------------------
+    // Load images (noise + gabors)
+    // ----------------------------
+    const noise_files = [];
+    const fabric_noise_imgs_master = [];
+
+    for (let i = 0; i < 50; i++) {
+      const img_src = `imgs/rand_noise_${i}.png`;
+      noise_files.push(img_src);
+
+      const Img = new Image();
+      Img.src = img_src;
+
+      const fabric_img = new fabric.Image(Img, {
+        left: 0,
+        top: 0,
+        width: noise_imgs_dim[0],
+        height: noise_imgs_dim[1],
+        originX: "left",
+        originY: "top"
+      });
+      fabric_img.scaleToWidth(canvas_size[0]);
+      fabric_noise_imgs_master.push(fabric_img);
+    }
+
+    const gabor_left_img = new Image();
+    gabor_left_img.src = "imgs/gabor_left.png";
+
+    const gabor_right_img = new Image();
+    gabor_right_img.src = "imgs/gabor_right.png";
+
+    const gabor_props = {
+      left: canvas_size[0] / 2,
+      top: canvas_size[1] / 2,
+      width: gabor_img_dim[0],
+      height: gabor_img_dim[1],
+      opacity: 1,
+      originX: "center",
+      originY: "center"
+    };
+
+    const gabor_left_fabric = new fabric.Image(gabor_left_img, gabor_props);
+    const gabor_right_fabric = new fabric.Image(gabor_right_img, gabor_props);
+    gabor_left_fabric.scaleToWidth(canvas_size[0]);
+    gabor_right_fabric.scaleToWidth(canvas_size[0]);
+
+    const preload = {
+      type: jsPsychPreload,
+      images: [...noise_files, "imgs/gabor_left.png", "imgs/gabor_right.png"]
+    };
+
+    // ----------------------------
+    // Staircase state (two interleaved)
+    // ----------------------------
+    const staircase = [
+      {
+        id: 1,
+        opacity: OP_START,
+        consecutiveCorrect: 0,
+        reversals: 0,
+        lastDirection: null // "up" or "down"
+      },
+      {
+        id: 2,
+        opacity: OP_START,
+        consecutiveCorrect: 0,
+        reversals: 0,
+        lastDirection: null
+      }
+    ];
+
+    // Balanced schedule for 60 trials: 30 per staircase, shuffled
+    let staircase_schedule = [];
+    for (let i = 0; i < N_TRIALS_PER_STAIRCASE; i++) staircase_schedule.push(1);
+    for (let i = 0; i < N_TRIALS_PER_STAIRCASE; i++) staircase_schedule.push(2);
+    staircase_schedule = jsPsych.randomization.shuffle(staircase_schedule);
+
+    // Trial counters (helps analysis)
+    let global_trial_index = 0; // 0..59
+    const stair_trial_index = { 1: 0, 2: 0 }; // within-staircase indices
+
+    // Current trial params (set right before each trial)
+    let current_staircase_id = null;
+    let current_opacity = null;
+    let current_tilt = null;
+
+    // ----------------------------
+    // Staircase update with analysis-friendly returns
+    // ----------------------------
+    function updateStaircase(staircase_id, correct) {
+      const s = staircase[staircase_id - 1];
+
+      const opacity_before = s.opacity;
+      const consecutiveCorrect_before = s.consecutiveCorrect;
+      const reversals_before = s.reversals;
+      const lastDirection_before = s.lastDirection;
+
+      const step_size_used = stepSizeForReversals(s.reversals);
+
+      let direction = "none";   // "up" | "down" | "none"
+      let is_reversal = 0;
+
+      if (correct === 1) {
+        s.consecutiveCorrect += 1;
+
+        // 2-down: after 2 consecutive correct => decrease opacity (harder)
+        if (s.consecutiveCorrect >= 2) {
+          const newOpacity = clamp(s.opacity - step_size_used, OP_MIN, OP_MAX);
+          // Only count as a step if opacity actually changed
+          if (newOpacity !== s.opacity) direction = "down";
+          s.opacity = newOpacity;
+
+          s.consecutiveCorrect = 0;
+        }
+      } else {
+        // 1-up: after any incorrect => increase opacity (easier)
+        const newOpacity = clamp(s.opacity + step_size_used, OP_MIN, OP_MAX);
+        if (newOpacity !== s.opacity) direction = "up";
+        s.opacity = newOpacity;
+
+        s.consecutiveCorrect = 0;
+      }
+
+      // Reversal logic: only if a step occurred (direction up/down)
+      if (direction === "up" || direction === "down") {
+        if (lastDirection_before !== null && lastDirection_before !== direction) {
+          s.reversals += 1;
+          is_reversal = 1;
+        }
+        s.lastDirection = direction;
+      }
+
+      return {
+        opacity_before,
+        opacity_after: s.opacity,
+        step_size_used,
+        direction,
+        is_reversal,
+        reversals_before,
+        reversals_after: s.reversals,
+        consecutiveCorrect_before,
+        consecutiveCorrect_after: s.consecutiveCorrect,
+        lastDirection_before,
+        lastDirection_after: s.lastDirection
+      };
+    }
+
+    // ----------------------------
+    // Core stimulus trial (dynamic noise + gabor)
+    // ----------------------------
+    function make_canvas_trial() {
+      let interval_ID;
+      let timestamp;
+      let delta_times = [];
+
+      return {
+        type: jsPsychCanvasKeyboardResponse,
+        canvas_size: canvas_size,
+        trial_duration: noise_duration,
+        response_ends_trial: true,
+        choices: ["ArrowLeft", "ArrowRight"],
+        prompt:
+          "<p>Left arrow = left-tilted grating, Right arrow = right-tilted grating.</p>" +
+          "<p>Respond as soon as you are confident.</p>",
+        stimulus: function (c) {
+          const gabor_fabric = (current_tilt === "left") ? gabor_left_fabric : gabor_right_fabric;
+
+          // Create a shuffled copy for this trial (do not mutate master list)
+          const shuffled_noise = jsPsych.randomization.shuffle([...fabric_noise_imgs_master]);
+
+          timestamp = performance.now();
+          const canvas = new fabric.StaticCanvas("jspsych-canvas-stimulus", {
+            backgroundColor: "black"
+          });
+
+          let frame = 0;
+
+          interval_ID = setInterval(() => {
+            gabor_fabric.opacity = current_opacity;
+
+            canvas.remove(...canvas.getObjects());
+            canvas.add(shuffled_noise[frame]);
+            frame = (frame + 1) % shuffled_noise.length;
+
+            canvas.add(gabor_fabric);
+            canvas.renderAll();
+
+            delta_times.push(Math.round(performance.now() - timestamp));
+            timestamp = performance.now();
+          }, single_frame_duration);
+        },
+        on_finish: (data) => {
+          clearInterval(interval_ID);
+
+          const correctKey = (current_tilt === "left") ? "ArrowLeft" : "ArrowRight";
+          const correct = (data.response === correctKey) ? 1 : 0;
+
+          // Update staircase and capture analysis-friendly info
+          const upd = updateStaircase(current_staircase_id, correct);
+
+          // Save everything needed for easy analysis
+          data.task = "opacity_staircase";
+          data.subject_id = subject_id;
+
+          data.global_trial_index = global_trial_index;                 // 0..59
+          data.staircase_id = current_staircase_id;                    // 1 or 2
+          data.trial_in_staircase = stair_trial_index[current_staircase_id]; // 0..29
+          data.staircase_scheduled = current_staircase_id;             // redundant, but explicit
+
+          data.gabor_tilt = current_tilt;
+          data.correct_key = correctKey;
+          data.correct = correct;
+
+          // Staircase state export
+          data.opacity_before = upd.opacity_before;
+          data.gabor_opacity = current_opacity; // opacity used on this trial (should equal opacity_before)
+          data.opacity_after = upd.opacity_after;
+
+          data.step_size_used = upd.step_size_used;
+          data.direction = upd.direction;       // up/down/none (none can happen at clamps)
+          data.is_reversal = upd.is_reversal;   // 1 if reversal happened on this update
+
+          data.reversals_before = upd.reversals_before;
+          data.reversals_after = upd.reversals_after;
+
+          data.consecutiveCorrect_before = upd.consecutiveCorrect_before;
+          data.consecutiveCorrect_after = upd.consecutiveCorrect_after;
+
+          data.lastDirection_before = upd.lastDirection_before;
+          data.lastDirection_after = upd.lastDirection_after;
+
+          // Frame timing diagnostics
+          data.frame_times = delta_times;
+        }
+      };
+    }
+
+    // ----------------------------
+    // Trial loop node (60 trials)
+    // ----------------------------
+    const set_trial_params = {
+      type: jsPsychCallFunction,
+      func: () => {
+        // Decide which staircase this trial belongs to
+        const sid = staircase_schedule[global_trial_index];
+        const s = staircase[sid - 1];
+
+        current_staircase_id = sid;
+        current_opacity = s.opacity;
+        current_tilt = jsPsych.randomization.sampleWithoutReplacement(["left", "right"], 1)[0];
+
+        // No increments here. We increment counters after the trial finishes in loop_function.
+      }
+    };
+
+    const one_trial = make_canvas_trial();
+
+    const loop_node = {
+      timeline: [set_trial_params, one_trial],
+      loop_function: () => {
+        // After each completed stimulus trial, increment indices
+        const sid = staircase_schedule[global_trial_index];
+        stair_trial_index[sid] += 1;
+        global_trial_index += 1;
+
+        return global_trial_index < N_TRIALS_TOTAL;
+      }
+    };
+
+    // ----------------------------
+    // Instructions
+    // ----------------------------
+    const instructions = {
+      type: jsPsychHtmlButtonResponse,
+      stimulus:
+        "<p>This is a calibration task using an adaptive staircase.</p>" +
+        "<p>You will see dynamic noise with a faint grating embedded.</p>" +
+        "<p>Press:</p>" +
+        "<p><strong>Left arrow</strong> for a left-tilted grating</p>" +
+        "<p><strong>Right arrow</strong> for a right-tilted grating</p>" +
+        "<p>There are <strong>60 trials</strong> (two interleaved staircases).</p>",
+      choices: ["Begin"]
+    };
+
+    const start_screen = {
+      type: jsPsychHtmlKeyboardResponse,
+      stimulus:
+        "<p>Keep your eyes on the center of the screen.</p>" +
+        "<p>Respond as soon as you are confident.</p>" +
+        "<p>Press any key to start.</p>"
+    };
+
+    // ----------------------------
+    // Run
+    // ----------------------------
+    jsPsych.run([preload, instructions, start_screen, loop_node]);
+  </script>
+</html>
