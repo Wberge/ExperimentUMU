@@ -25,13 +25,20 @@
 
   const canvas_size = [400, 400];
   const noise_imgs_dim = [250, 250];
+  const gabor_img_dim = [250, 250];
   const single_frame_duration = 100;
   const dynamic_noise_duration = 2000;
-  const n_trials = 5;
+
+  const n_imagery_trials = 5;
+  const hidden_stimulus_trial_index = 6;
+  const total_trials = 6;
+  const hidden_stimulus_opacity = 0.11;
 
   const vividness_opacities = [0.12, 0.28, 0.44, 0.60, 0.78];
 
+  // -----------------------------
   // PRELOAD
+  // -----------------------------
   const noise_files = [];
   for (let i = 0; i < 50; i++) {
     noise_files.push(`imgs/rand_noise_${i}.png`);
@@ -42,8 +49,9 @@
     images: [...noise_files, 'imgs/gabor_left.png', 'imgs/gabor_right.png']
   };
 
-
-  // noise images
+  // -----------------------------
+  // PREPARE NOISE IMAGES
+  // -----------------------------
   let fabric_noise_imgs = [];
 
   for (let i = 0; i < 50; i++) {
@@ -63,23 +71,55 @@
     fabric_noise_imgs.push(fabric_img);
   }
 
-  // orientaties
-  let trial_orientations = jsPsych.randomization.repeat(['left', 'right'], Math.ceil(n_trials / 2));
-  trial_orientations = jsPsych.randomization.shuffle(trial_orientations).slice(0, n_trials);
+  // -----------------------------
+  // PREPARE GABOR IMAGES
+  // -----------------------------
+  const gabor_left_img = new Image();
+  gabor_left_img.src = 'imgs/gabor_left.png';
+
+  const gabor_right_img = new Image();
+  gabor_right_img.src = 'imgs/gabor_right.png';
+
+  function makeFabricGabor(imageObj, opacity) {
+    const gabor = new fabric.Image(imageObj, {
+      left: canvas_size[0] / 2,
+      top: canvas_size[1] / 2,
+      width: gabor_img_dim[0],
+      height: gabor_img_dim[1],
+      opacity: opacity,
+      originX: 'center',
+      originY: 'center'
+    });
+    gabor.scaleToWidth(canvas_size[0]);
+    return gabor;
+  }
 
   function getGaborFile(orientation) {
     return orientation === 'left' ? 'imgs/gabor_left.png' : 'imgs/gabor_right.png';
   }
 
-  // instruction
+  function getGaborImageObject(orientation) {
+    return orientation === 'left' ? gabor_left_img : gabor_right_img;
+  }
+
+  // -----------------------------
+  // RANDOMIZED ORIENTATIONS
+  // -----------------------------
+  let trial_orientations = jsPsych.randomization.repeat(['left', 'right'], Math.ceil(total_trials / 2));
+  trial_orientations = jsPsych.randomization.shuffle(trial_orientations).slice(0, total_trials);
+
+  // -----------------------------
+  // INSTRUCTION
+  // -----------------------------
   function make_instruction_trial(trial_index, orientation) {
     return {
       type: jsPsychHtmlButtonResponse,
       stimulus: `
         <div style="max-width:800px; margin:0 auto; text-align:center;">
-          <p>Beeld het volgende figuur zo duidelijk mogelijk in.</p>
+          <p>Try to imagine the following <strong>${orientation}-tilted grating</strong> as vividly as possible.</p>
           <img src="${getGaborFile(orientation)}" style="width:220px; height:220px; margin:20px 0;">
-          <p>Beeld het figuur in terwijl je naar de noise op het volgende scherm kijkt.</p>
+          <p>You will then see moving noise.</p>
+          <p>After that, choose the example that best matches how vivid your mental image was.</p>
         </div>
       `,
       choices: ['Start'],
@@ -91,8 +131,10 @@
     };
   }
 
-  // noise
-  function make_noise_trial(trial_index, orientation) {
+  // -----------------------------
+  // NOISE TRIAL
+  // -----------------------------
+  function make_noise_trial(trial_index, orientation, show_hidden_stimulus = false) {
     let interval_ID;
 
     return {
@@ -107,11 +149,19 @@
           backgroundColor: 'white'
         });
 
+        const gabor_image_obj = getGaborImageObject(orientation);
+        const hidden_gabor = makeFabricGabor(gabor_image_obj, hidden_stimulus_opacity);
+
         let nth_frame = 0;
 
         interval_ID = setInterval(() => {
           canvas.remove(...canvas.getObjects());
           canvas.add(shuffled_noise[nth_frame]);
+
+          if (show_hidden_stimulus) {
+            canvas.add(hidden_gabor);
+          }
+
           canvas.renderAll();
           nth_frame = (nth_frame + 1) % shuffled_noise.length;
         }, single_frame_duration);
@@ -119,23 +169,28 @@
       data: {
         phase: "noise",
         trial_index: trial_index,
-        imagined_tilt: orientation
+        imagined_tilt: orientation,
+        hidden_real_stimulus_present: show_hidden_stimulus ? 1 : 0,
+        hidden_real_stimulus_opacity: show_hidden_stimulus ? hidden_stimulus_opacity : 0
       },
-      on_finish: function() {
+      on_finish: function(data) {
         clearInterval(interval_ID);
       }
     };
   }
-  // vividness rating jpsych
-  function make_vividness_trial(trial_index, orientation) {
+
+  // -----------------------------
+  // VIVIDNESS RATING TRIAL
+  // -----------------------------
+  function make_vividness_trial(trial_index, orientation, show_hidden_stimulus = false) {
     const gabor_file = getGaborFile(orientation);
 
     return {
       type: jsPsychSurveyHtmlForm,
       preamble: `
         <div style="text-align:center; max-width:1000px; margin:0 auto;">
-          <p style="font-size:22px;">Hoe duidelijk was jouw inbeedling?</p>
-          <p>Selecteer het voorbeeld dat het beste meest op jouw inbeelding lijkt.</p>
+          <p style="font-size:22px;">How vivid was the image you imagined?</p>
+          <p>Select the example that best matches your imagery.</p>
         </div>
       `,
       html: `
@@ -249,7 +304,8 @@
       data: {
         phase: "vividness_rating",
         trial_index: trial_index,
-        imagined_tilt: orientation
+        imagined_tilt: orientation,
+        hidden_real_stimulus_present: show_hidden_stimulus ? 1 : 0
       },
       on_finish: function(data) {
         const response = data.response;
@@ -258,17 +314,102 @@
       }
     };
   }
-  //timeline
-  const timeline = [preload];
 
-  for (let t = 0; t < n_trials; t++) {
-    const orientation = trial_orientations[t];
+  // -----------------------------
+  // AWARENESS CHECK AT END
+  // -----------------------------
+const awareness_check = {
+  type: jsPsychSurveyHtmlForm,
+  preamble: `
+    <div style="max-width:900px; margin:0 auto; text-align:center;">
+      <p style="font-size:22px;">Final question</p>
+      <p>In the last trial, did you see a real grating in the noise?</p>
+    </div>
+  `,
+  html: `
+    <div style="max-width:700px; margin:30px auto; text-align:left;">
+
+      <p>
+        <label>
+          <input type="radio" name="noticed_real_stimulus_last_trial" value="yes" required>
+          Yes
+        </label>
+      </p>
+
+      <p>
+        <label>
+          <input type="radio" name="noticed_real_stimulus_last_trial" value="no" required>
+          No
+        </label>
+      </p>
+
+    </div>
+  `,
+  button_label: "Continue",
+  data: {
+    phase: "awareness_check",
+    actual_hidden_stimulus_trial: hidden_stimulus_trial_index
+  },
+  on_finish: function(data) {
+    const response = data.response;
+    data.noticed_real_stimulus_last_trial = response.noticed_real_stimulus_last_trial || "";
+    data.correct_detection_last_trial =
+      response.noticed_real_stimulus_last_trial === "yes" ? 1 : 0;
+  }
+};
+// -----------------------------
+// DEMOGRAPHICS
+// -----------------------------
+const demographics = {
+  type: jsPsychSurveyHtmlForm,
+  preamble: `
+    <div style="max-width:700px; margin:0 auto; text-align:center;">
+      <p style="font-size:22px;">A few questions before we start</p>
+    </div>
+  `,
+  html: `
+    <div style="max-width:500px; margin:20px auto; text-align:left;">
+
+      <p>
+        Age:<br>
+        <input type="number" name="age" min="5" max="100" required>
+      </p>
+
+      <p>
+        Gender:<br>
+        <label><input type="radio" name="gender" value="male" required> Male</label><br>
+        <label><input type="radio" name="gender" value="female" required> Female</label><br>
+        <label><input type="radio" name="gender" value="other" required> Other</label>
+      </p>
+
+    </div>
+  `,
+  button_label: "Continue",
+  data: {
+    phase: "demographics"
+  },
+  on_finish: function(data) {
+    const response = data.response;
+    data.age = Number(response.age);
+    data.gender = response.gender;
+  }
+};
+  // -----------------------------
+  // BUILD TIMELINE
+  // -----------------------------
+  const timeline = [preload, demographics];
+
+  for (let t = 0; t < total_trials; t++) {
     const trial_index = t + 1;
+    const orientation = trial_orientations[t];
+    const show_hidden_stimulus = (trial_index === hidden_stimulus_trial_index);
 
     timeline.push(make_instruction_trial(trial_index, orientation));
-    timeline.push(make_noise_trial(trial_index, orientation));
-    timeline.push(make_vividness_trial(trial_index, orientation));
+    timeline.push(make_noise_trial(trial_index, orientation, show_hidden_stimulus));
+    timeline.push(make_vividness_trial(trial_index, orientation, show_hidden_stimulus));
   }
+
+  timeline.push(awareness_check);
 
   jsPsych.run(timeline);
 </script>
