@@ -34,7 +34,7 @@
   font-size: 14px;
   font-weight: 400;
   line-height: 1;
-  color: rgba(255, 255, 255, 0.9);
+  color: #333333;
   text-align: center;
   pointer-events: none;
 }
@@ -63,82 +63,9 @@
   const subject_id = Math.random().toString(36).substring(2, 12);
   const filename = `${subject_id}.csv`;
 
-  const export_excluded_keys = new Set([
-    'stimulus',
-    'html',
-    'preamble',
-    'choices',
-    'type',
-    'response',
-    'button_html',
-    'prompt',
-    'canvas_size',
-    'func',
-    'trial_type',
-    'internal_node_id',
-    'plugins',
-    'timeline',
-    'trial_index',
-    'time_elapsed',
-    'frame_times'
-  ]);
-
-  function serializeCSVValue(value) {
-    if (value === null || value === undefined) return '';
-
-    const string_value = String(value).replace(/\r?\n|\r/g, ' ');
-    if (/[",]/.test(string_value)) {
-      return `"${string_value.replace(/"/g, '""')}"`;
-    }
-    return string_value;
-  }
-
-  function getCleanExportRows() {
-    const raw_rows = jsPsych.data.get().values();
-
-    return raw_rows.map((row) => {
-      const clean_row = {};
-
-      Object.entries(row).forEach(([key, value]) => {
-        if (export_excluded_keys.has(key)) return;
-        if (typeof value === 'function') return;
-        if (value && typeof value === 'object') return;
-        clean_row[key] = value;
-      });
-
-      return clean_row;
-    });
-  }
-
-  function downloadCSV(rows, download_name) {
-    const all_columns = Array.from(
-      rows.reduce((column_set, row) => {
-        Object.keys(row).forEach((key) => column_set.add(key));
-        return column_set;
-      }, new Set())
-    );
-
-    const csv_lines = [
-      all_columns.map(serializeCSVValue).join(','),
-      ...rows.map((row) =>
-        all_columns.map((column) => serializeCSVValue(row[column])).join(',')
-      )
-    ];
-
-    const blob = new Blob([csv_lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = download_name;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }
-
   const jsPsych = initJsPsych({
     on_finish: () => {
-      downloadCSV(getCleanExportRows(), filename);
+      jsPsych.data.get().localSave('csv', filename);
     }
   });
 
@@ -165,64 +92,86 @@
     }
   });
 
+  function isSpaceHintTarget(element) {
+    return element.matches(
+      'button.jspsych-btn, input.jspsych-btn[type="button"], input.jspsych-btn[type="submit"], input[type="submit"]'
+    );
+  }
+
   function ensureSpaceHints() {
     const buttons = document.querySelectorAll(
       'button.jspsych-btn, input.jspsych-btn[type="button"], input.jspsych-btn[type="submit"], input[type="submit"]'
     );
 
-    buttons.forEach((button, index) => {
-      if (button.dataset.spaceProxy === 'true') {
-        if (!button.querySelector('.jspsych-space-hint')) {
-          const hint = document.createElement('span');
+    buttons.forEach((button) => {
+      if (
+        button.parentElement &&
+        button.parentElement.classList.contains('jspsych-space-wrapper')
+      ) {
+        const existing_hint = button.parentElement.querySelector('.jspsych-space-hint');
+        if (!existing_hint) {
+          const hint = document.createElement('div');
           hint.className = 'jspsych-space-hint';
           hint.textContent = '<spatie>';
-          button.appendChild(hint);
+          button.parentElement.appendChild(hint);
         }
         return;
       }
 
-      if (!button.id) {
-        button.id = `jspsych-space-button-${index}`;
-      }
+      const wrapper = document.createElement('div');
+      wrapper.className = 'jspsych-space-wrapper';
+      button.insertAdjacentElement('beforebegin', wrapper);
+      wrapper.appendChild(button);
 
-      if (button.tagName === 'BUTTON') {
-        if (!button.querySelector('.jspsych-space-hint')) {
-          const hint = document.createElement('span');
-          hint.className = 'jspsych-space-hint';
-          hint.textContent = '<spatie>';
-          button.appendChild(hint);
-        }
-        return;
-      }
-
-      if (button.tagName === 'INPUT' && (button.type === 'submit' || button.type === 'button')) {
-        let proxy_button = document.getElementById(`${button.id || `jspsych-space-button-${index}`}-proxy`);
-
-        if (!proxy_button) {
-          proxy_button = document.createElement('button');
-          proxy_button.type = 'button';
-          proxy_button.id = `${button.id || `jspsych-space-button-${index}`}-proxy`;
-          proxy_button.className = button.className || 'jspsych-btn';
-          proxy_button.dataset.spaceProxy = 'true';
-          proxy_button.innerHTML = `${button.value}<span class="jspsych-space-hint">&lt;spatie&gt;</span>`;
-
-          proxy_button.addEventListener('click', () => {
-            if (button.form && typeof button.form.requestSubmit === 'function' && button.type === 'submit') {
-              button.form.requestSubmit(button);
-            } else {
-              button.click();
-            }
-          });
-
-          button.style.display = 'none';
-          button.insertAdjacentElement('afterend', proxy_button);
-        }
-      }
+      const hint = document.createElement('div');
+      hint.className = 'jspsych-space-hint';
+      hint.textContent = '<spatie>';
+      wrapper.appendChild(hint);
     });
   }
 
-  window.addEventListener('load', ensureSpaceHints);
-  window.setInterval(ensureSpaceHints, 300);
+  function setupSpaceHintObserver() {
+    let update_scheduled = false;
+
+    const scheduleHintUpdate = () => {
+      if (update_scheduled) return;
+      update_scheduled = true;
+      window.requestAnimationFrame(() => {
+        update_scheduled = false;
+        ensureSpaceHints();
+      });
+    };
+
+    const observer = new MutationObserver((mutation_list) => {
+      const should_update = mutation_list.some((mutation) => {
+        return [...mutation.addedNodes].some((node) => {
+          if (!(node instanceof HTMLElement)) return false;
+          if (node.classList.contains('jspsych-space-hint')) return false;
+          if (node.classList.contains('jspsych-space-wrapper')) return false;
+          return isSpaceHintTarget(node) || !!node.querySelector?.(
+            'button.jspsych-btn, input.jspsych-btn[type="button"], input.jspsych-btn[type="submit"], input[type="submit"]'
+          );
+        });
+      });
+
+      if (should_update) {
+        scheduleHintUpdate();
+      }
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+
+    scheduleHintUpdate();
+  }
+
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', setupSpaceHintObserver);
+  } else {
+    setupSpaceHintObserver();
+  }
 
   const vividness_imagery_condition = jsPsych.randomization.sampleWithoutReplacement(['right', 'left'], 1)[0];
 
@@ -294,7 +243,10 @@
 
   const preload = {
     type: jsPsychPreload,
-    images: [...noise_files, 'imgs/gabor_left.png', 'imgs/gabor_right.png', 'imgs/Lieke.png']
+    images: [...noise_files, 'imgs/gabor_left.png', 'imgs/gabor_right.png', 'imgs/Lieke.png'],
+    save_trial_parameters: {
+      images: false
+    }
   };
 
   // =====================================================
@@ -365,6 +317,11 @@
       </div>
     `,
     button_label: "Verder",
+    save_trial_parameters: {
+      preamble: false,
+      html: false,
+      button_label: false
+    },
     data: {
       phase: "demographics"
     },
@@ -396,6 +353,10 @@
       </div>
     `,
     choices: ['Begin'],
+    save_trial_parameters: {
+      stimulus: false,
+      choices: false
+    },
     data: {
       phase: 'zebra_intro'
     }
@@ -416,6 +377,10 @@
       </div>
     `,
     choices: ['Verder'],
+    save_trial_parameters: {
+      stimulus: false,
+      choices: false
+    },
     data: {
       phase: 'snowstorm_intro'
     }
@@ -436,6 +401,10 @@
       </div>
     `,
     choices: ['Verder'],
+    save_trial_parameters: {
+      stimulus: false,
+      choices: false
+    },
     data: {
       phase: 'stripes_intro'
     }
@@ -476,6 +445,10 @@
         </div>
       `,
       choices: ['Verder'],
+      save_trial_parameters: {
+        stimulus: false,
+        choices: false
+      },
       data: {
         phase: "vividness_instruction",
         vividness_trial_index: trial_index,
@@ -492,6 +465,11 @@
       canvas_size: canvas_size,
       trial_duration: vividness_noise_duration,
       choices: "NO_KEYS",
+      save_trial_parameters: {
+        stimulus: false,
+        choices: false,
+        canvas_size: false
+      },
       stimulus: function() {
         const shuffled_noise = jsPsych.randomization.shuffle([...fabric_noise_imgs]);
         const canvas = new fabric.StaticCanvas("jspsych-canvas-stimulus", {
@@ -589,6 +567,11 @@
         </div>
       `,
       button_label: "Verder",
+      save_trial_parameters: {
+        preamble: false,
+        html: false,
+        button_label: false
+      },
       data: {
         phase: "vividness_rating",
         vividness_trial_index: trial_index,
@@ -629,6 +612,11 @@
       </div>
     `,
     button_label: "Verder",
+    save_trial_parameters: {
+      preamble: false,
+      html: false,
+      button_label: false
+    },
     data: {
       phase: "awareness_check",
       actual_hidden_stimulus_trial: hidden_stimulus_trial_index
@@ -715,6 +703,10 @@
       data: {
         phase: 'global_imagery_instruction',
         imagery_condition: imagery_condition
+      },
+      save_trial_parameters: {
+        stimulus: false,
+        choices: false
       }
     };
   }
@@ -729,6 +721,11 @@
       type: jsPsychCanvasKeyboardResponse,
       canvas_size: canvas_size,
       trial_duration: noise_duration,
+      save_trial_parameters: {
+        stimulus: false,
+        choices: false,
+        canvas_size: false
+      },
       stimulus: function() {
         const external_condition = current_external_condition;
 
@@ -800,6 +797,10 @@
       stimulus: "<div style='font-size:32px; text-align:center;'>+</div>",
       choices: "NO_KEYS",
       trial_duration: inter_trial_interval,
+      save_trial_parameters: {
+        stimulus: false,
+        choices: false
+      },
       data: function() {
         return {
           phase: 'trial_divider',
@@ -830,6 +831,10 @@
         </div>
       `,
       choices: ['Verder'],
+      save_trial_parameters: {
+        stimulus: false,
+        choices: false
+      },
       data: {
         phase: 'main_task_reminder',
         imagery_condition: imagery_condition
@@ -858,6 +863,10 @@
       </div>
     `,
     choices: ['Verder'],
+    save_trial_parameters: {
+      stimulus: false,
+      choices: false
+    },
     data: { phase: 'general_instruction' }
   };
 
@@ -887,6 +896,10 @@
       </div>
     `,
     choices: ['Verder'],
+    save_trial_parameters: {
+      stimulus: false,
+      choices: false
+    },
     data: { phase: 'orientation_example_left' }
   };
 
@@ -916,6 +929,10 @@
       </div>
     `,
     choices: ['Verder'],
+    save_trial_parameters: {
+      stimulus: false,
+      choices: false
+    },
     data: { phase: 'orientation_example_right' }
   };
 
@@ -937,6 +954,10 @@
       </div>
     `,
     choices: ['Verder'],
+    save_trial_parameters: {
+      stimulus: false,
+      choices: false
+    },
     data: { phase: 'general_instruction' }
   };
 
@@ -949,6 +970,10 @@
       </div>
     `,
     choices: ['Start het spel'],
+    save_trial_parameters: {
+      stimulus: false,
+      choices: false
+    },
     data: { phase: 'start_main' }
   };
 
@@ -957,6 +982,9 @@
     func: function() {
       main_task_start_time = performance.now();
       running_trial_number = 0;
+    },
+    save_trial_parameters: {
+      func: false
     },
     data: { phase: 'mark_main_task_start' }
   };
@@ -971,6 +999,10 @@
       </div>
     `,
     choices: ['Afronden'],
+    save_trial_parameters: {
+      stimulus: false,
+      choices: false
+    },
     data: { phase: 'end_screen' }
   };
 
@@ -980,6 +1012,9 @@
         type: jsPsychCallFunction,
         func: function() {
           running_trial_number++;
+        },
+        save_trial_parameters: {
+          func: false
         },
         data: { phase: 'increment_trial_counter' }
       },
@@ -999,6 +1034,9 @@
         type: jsPsychCallFunction,
         func: function() {
           current_external_condition = sample_external_condition();
+        },
+        save_trial_parameters: {
+          func: false
         },
         data: function() {
           return {
