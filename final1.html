@@ -63,10 +63,82 @@
   const subject_id = Math.random().toString(36).substring(2, 12);
   const filename = `${subject_id}.csv`;
 
+  const export_excluded_keys = new Set([
+    'stimulus',
+    'html',
+    'preamble',
+    'choices',
+    'type',
+    'response',
+    'button_html',
+    'prompt',
+    'canvas_size',
+    'func',
+    'trial_type',
+    'internal_node_id',
+    'plugins',
+    'timeline',
+    'trial_index',
+    'time_elapsed',
+    'frame_times'
+  ]);
+
+  function serializeCSVValue(value) {
+    if (value === null || value === undefined) return '';
+
+    const string_value = String(value).replace(/\r?\n|\r/g, ' ');
+    if (/[",]/.test(string_value)) {
+      return `"${string_value.replace(/"/g, '""')}"`;
+    }
+    return string_value;
+  }
+
+  function getCleanExportRows() {
+    const raw_rows = jsPsych.data.get().values();
+
+    return raw_rows.map((row) => {
+      const clean_row = {};
+
+      Object.entries(row).forEach(([key, value]) => {
+        if (export_excluded_keys.has(key)) return;
+        if (typeof value === 'function') return;
+        if (value && typeof value === 'object') return;
+        clean_row[key] = value;
+      });
+
+      return clean_row;
+    });
+  }
+
+  function downloadCSV(rows, download_name) {
+    const all_columns = Array.from(
+      rows.reduce((column_set, row) => {
+        Object.keys(row).forEach((key) => column_set.add(key));
+        return column_set;
+      }, new Set())
+    );
+
+    const csv_lines = [
+      all_columns.map(serializeCSVValue).join(','),
+      ...rows.map((row) =>
+        all_columns.map((column) => serializeCSVValue(row[column])).join(',')
+      )
+    ];
+
+    const blob = new Blob([csv_lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = download_name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
   const jsPsych = initJsPsych({
     on_finish: () => {
-      jsPsych.data.get().localSave('csv', filename);
-      jsPsych.data.displayData();
+      downloadCSV(getCleanExportRows(), filename);
     }
   });
 
@@ -737,6 +809,34 @@
     };
   }
 
+  function make_main_task_reminder(imagery_condition) {
+    return {
+      type: jsPsychHtmlButtonResponse,
+      stimulus: `
+        <div style="max-width:900px; margin:0 auto; text-align:center;">
+          <p style="font-size:24px;"><strong>Even een korte herinnering</strong></p>
+          <p style="font-size:20px;">
+            Blijf steeds de <strong>strepen</strong> van ${zebraName(imagery_condition)} inbeelden.
+          </p>
+          <p style="font-size:20px;">
+            Kijk tegelijk goed welke zebra je <strong>echt</strong> ziet in de sneeuw.
+          </p>
+          <div style="margin:18px 0;">
+            <img src="${getGaborFile(imagery_condition)}" style="width:220px; height:220px;" alt="strepen van ${zebraName(imagery_condition)}">
+          </div>
+          <p style="font-size:18px;">
+            Dus: blijf deze strepen inbeelden, en antwoord over de zebra die je echt zag.
+          </p>
+        </div>
+      `,
+      choices: ['Verder'],
+      data: {
+        phase: 'main_task_reminder',
+        imagery_condition: imagery_condition
+      }
+    };
+  }
+
   const welcome = {
     type: jsPsychHtmlButtonResponse,
     stimulus: `
@@ -887,6 +987,12 @@
         timeline: [make_trial_divider()],
         conditional_function: function() {
           return running_trial_number > 1;
+        }
+      },
+      {
+        timeline: [make_main_task_reminder(global_imagery_condition)],
+        conditional_function: function() {
+          return running_trial_number > 1 && (running_trial_number - 1) % 10 === 0;
         }
       },
       {
