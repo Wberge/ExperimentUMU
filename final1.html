@@ -14,13 +14,52 @@
   <script src="https://unpkg.com/@jspsych/plugin-survey-html-form@2.1.0"></script>
 
   <link href="https://unpkg.com/jspsych@8.2.2/css/jspsych.css" rel="stylesheet" type="text/css" />
+  <style>
+.jspsych-btn {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2em;
+    font-size: 30px;
+    border: 10px solid transparent;
+    border-radius: 16px;
+    color: white;
+    background-color: #2b00c8d0;
+    padding: 0.6em 1.2em;
+    /*font-family: Malington;*/
+}
+.jspsych-space-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.9);
+  text-align: center;
+  pointer-events: none;
+}
+.jspsych-space-wrapper {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+}
+.jspsych-btn:hover {
+  background-color: #2b00c8; 
+  border-color: #2b00c8;
+  color: white;
+}
+.jspsych-btn:disabled {
+  background-color: #2b00c800;
+  color: #aaaaaa00;
+  border-color: #d13d3d00;
+  cursor:auto;
+}
+</style>
 </head>
 <body></body>
 
 <script>
 // instellingen
-  const main_task_duration_ms = 3 * 60 * 1000;
-  const debug_skip_to_part_two = true;
   const subject_id = Math.random().toString(36).substring(2, 12);
   const filename = `${subject_id}.csv`;
 
@@ -31,13 +70,98 @@
     }
   });
 
+  function getContinueButton() {
+    return document.querySelector(
+      'button.jspsych-btn:not([disabled]), input.jspsych-btn[type="button"]:not([disabled]), input.jspsych-btn[type="submit"]:not([disabled]), input[type="submit"]:not([disabled])'
+    );
+  }
+
+  document.addEventListener('keydown', function(event) {
+    const active_element = document.activeElement;
+    const active_tag = active_element ? active_element.tagName : '';
+    const input_type = active_element && active_element.type ? active_element.type.toLowerCase() : '';
+    const blocks_space_continue =
+      active_tag === 'TEXTAREA' ||
+      active_tag === 'SELECT' ||
+      active_tag === 'BUTTON' ||
+      (active_tag === 'INPUT' && !['radio', 'checkbox'].includes(input_type));
+    const continue_button = getContinueButton();
+
+    if (event.code === 'Space' && continue_button && !blocks_space_continue) {
+      event.preventDefault();
+      continue_button.click();
+    }
+  });
+
+  function ensureSpaceHints() {
+    const buttons = document.querySelectorAll(
+      'button.jspsych-btn, input.jspsych-btn[type="button"], input.jspsych-btn[type="submit"], input[type="submit"]'
+    );
+
+    buttons.forEach((button, index) => {
+      if (button.dataset.spaceProxy === 'true') {
+        if (!button.querySelector('.jspsych-space-hint')) {
+          const hint = document.createElement('span');
+          hint.className = 'jspsych-space-hint';
+          hint.textContent = '<spatie>';
+          button.appendChild(hint);
+        }
+        return;
+      }
+
+      if (!button.id) {
+        button.id = `jspsych-space-button-${index}`;
+      }
+
+      if (button.tagName === 'BUTTON') {
+        if (!button.querySelector('.jspsych-space-hint')) {
+          const hint = document.createElement('span');
+          hint.className = 'jspsych-space-hint';
+          hint.textContent = '<spatie>';
+          button.appendChild(hint);
+        }
+        return;
+      }
+
+      if (button.tagName === 'INPUT' && (button.type === 'submit' || button.type === 'button')) {
+        let proxy_button = document.getElementById(`${button.id || `jspsych-space-button-${index}`}-proxy`);
+
+        if (!proxy_button) {
+          proxy_button = document.createElement('button');
+          proxy_button.type = 'button';
+          proxy_button.id = `${button.id || `jspsych-space-button-${index}`}-proxy`;
+          proxy_button.className = button.className || 'jspsych-btn';
+          proxy_button.dataset.spaceProxy = 'true';
+          proxy_button.innerHTML = `${button.value}<span class="jspsych-space-hint">&lt;spatie&gt;</span>`;
+
+          proxy_button.addEventListener('click', () => {
+            if (button.form && typeof button.form.requestSubmit === 'function' && button.type === 'submit') {
+              button.form.requestSubmit(button);
+            } else {
+              button.click();
+            }
+          });
+
+          button.style.display = 'none';
+          button.insertAdjacentElement('afterend', proxy_button);
+        }
+      }
+    });
+  }
+
+  window.addEventListener('load', ensureSpaceHints);
+  window.setInterval(ensureSpaceHints, 300);
+
+  const vividness_imagery_condition = jsPsych.randomization.sampleWithoutReplacement(['right', 'left'], 1)[0];
+
   jsPsych.data.addProperties({
     participantID: subject_id,
     filename: filename,
     experiment: "zebra_in_sneeuwstorm_gecombineerd",
     vividness_hidden_stimulus_opacity: 0.11,
-    main_task_duration_ms: main_task_duration_ms,
-    main_task_stimulus_opacity: 0.11
+    main_task_duration_ms: 180000,
+    main_task_stimulus_opacity: 0.11,
+    vividness_imagery_condition: vividness_imagery_condition
   });
 
 
@@ -98,75 +222,48 @@
 
   const preload = {
     type: jsPsychPreload,
-    images: [...noise_files, 'imgs/gabor_left.png', 'imgs/gabor_right.png', 'imgs/Lieke.png', 'imgs/Rick.png']
+    images: [...noise_files, 'imgs/gabor_left.png', 'imgs/gabor_right.png', 'imgs/Lieke.png']
   };
 
   // =====================================================
   // HULPFUNCTIES VOOR UITLEG
   // =====================================================
-  function getZebraCharacter(stripeOrientation) {
-    if (stripeOrientation === 'left') {
-      return {
-        name: 'Lieke',
-        stripeLabel: 'LINKS',
-        arrowLabel: 'linkerpijl',
-        imageSrc: 'imgs/Lieke.png'
-      };
-    }
-
-    return {
-      name: 'Rick',
-      stripeLabel: 'RECHTS',
-      arrowLabel: 'rechterpijl',
-      imageSrc: 'imgs/Rick.png'
-    };
+  function zebraLabel(orientation) {
+    return orientation === 'left' ? 'LINKS' : 'RECHTS';
   }
 
   function zebraName(orientation) {
-    return getZebraCharacter(orientation).name;
+    return orientation === 'left' ? 'Lieke' : 'Rick';
   }
 
-  function zebraLabel(orientation) {
-    return getZebraCharacter(orientation).stripeLabel;
+  function oppositeOrientation(orientation) {
+    return orientation === 'left' ? 'right' : 'left';
   }
 
   function arrowLabel(orientation) {
-    return getZebraCharacter(orientation).arrowLabel;
+    return orientation === 'left' ? 'linkerpijl' : 'rechterpijl';
   }
 
   function zebraImageHTML(orientation, width = 220) {
-    const zebra = getZebraCharacter(orientation);
-    const frameSize = width;
+    const transform = orientation === 'right' ? 'scaleX(-1)' : 'scaleX(1)';
+    const alt = zebraName(orientation);
+    const height = Math.round(width * 0.85);
     return `
-      <div style="display:inline-block; text-align:center;">
-        <div style="width:${frameSize}px; height:${frameSize}px; display:flex; align-items:center; justify-content:center; margin:10px auto 0 auto; overflow:hidden;">
-          <img 
-            src="${zebra.imageSrc}"
-            style="width:100%; height:100%; object-fit:cover; object-position:center; display:block;"
-            alt="${zebra.name}"
-          >
-        </div>
-        <div style="font-size:20px; font-weight:bold;">${zebra.name}</div>
-      </div>
+      <img 
+        src="imgs/Lieke.png"
+        style="height:${height}px; width:auto; max-width:90vw; transform:${transform}; margin:10px 0;"
+        alt="${alt}"
+      >
     `;
   }
 
-  function zebraPairHTML(width = 180) {
+  function snowstormImageHTML(width = 260) {
     return `
-      <div style="display:flex; justify-content:center; gap:40px; flex-wrap:wrap; align-items:flex-start; margin:20px 0;">
-        <div style="text-align:center; max-width:280px;">
-          ${zebraImageHTML('right', width)}
-          <p style="font-size:18px; margin:8px 0 0 0;">
-            Dit is <strong>Rick</strong>. Onthoud: <strong>Rick = RECHTS</strong>.
-          </p>
-        </div>
-        <div style="text-align:center; max-width:280px;">
-          ${zebraImageHTML('left', width)}
-          <p style="font-size:18px; margin:8px 0 0 0;">
-            Dit is <strong>Lieke</strong>. Onthoud: <strong>Lieke = LINKS</strong>.
-          </p>
-        </div>
-      </div>
+      <img 
+        src="imgs/rand_noise_0.png"
+        style="width:${width}px; height:${width}px; margin:10px 0; border-radius:12px;"
+        alt="sneeuwstorm"
+      >
     `;
   }
 
@@ -217,27 +314,58 @@
     stimulus: `
       <div style="max-width:900px; margin:0 auto; text-align:center;">
         <p style="font-size:26px;"><strong>Welkom bij het zebra-spel</strong></p>
-        ${zebraImageHTML('right', 220)}
+        ${zebraImageHTML(vividness_imagery_condition, 280)}
         <p style="font-size:20px;">
-          Dit is <strong>Rick</strong>.
+          Dit is zebra <strong>${zebraName(vividness_imagery_condition)}</strong>.
         </p>
         <p style="font-size:20px;">
-          Rick heeft strepen naar <strong>rechts</strong>.
-        </p>
-        <p style="font-size:20px;">
-          Stel je voor dat er een <strong>sneeuwstorm</strong> is.
-        </p>
-        <p style="font-size:20px;">
-          Door de dwarrelende sneeuw kun je Rick soms niet zo goed zien.
-        </p>
-        <p style="font-size:20px;">
-          In het eerste deel is het jouw taak om de strepen van Rick zo goed mogelijk <strong>voor je te zien in je hoofd</strong>.
+          De strepen van ${zebraName(vividness_imagery_condition)} lopen naar <strong>${zebraLabel(vividness_imagery_condition)}</strong>.
         </p>
       </div>
     `,
     choices: ['Begin'],
     data: {
       phase: 'zebra_intro'
+    }
+  };
+
+  const snowstorm_intro = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+      <div style="max-width:900px; margin:0 auto; text-align:center;">
+        <p style="font-size:26px;"><strong>Straks zie je steeds een sneeuwstorm</strong></p>
+        ${snowstormImageHTML(260)}
+        <p style="font-size:20px;">
+          In die sneeuwstorm is het vaak moeilijk om iets goed te zien.
+        </p>
+        <p style="font-size:20px;">
+          Daarom is het jouw taak om straks steeds de <strong>strepen</strong> van ${zebraName(vividness_imagery_condition)} in te beelden.
+        </p>
+      </div>
+    `,
+    choices: ['Verder'],
+    data: {
+      phase: 'snowstorm_intro'
+    }
+  };
+
+  const stripes_intro = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+      <div style="max-width:900px; margin:0 auto; text-align:center;">
+        <p style="font-size:26px;"><strong>Dit zijn de strepen die je moet inbeelden</strong></p>
+        <img src="${getGaborFile(vividness_imagery_condition)}" style="width:240px; height:240px; margin:12px 0;">
+        <p style="font-size:20px;">
+          Dit plaatje laat een klein stukje van de strepen van ${zebraName(vividness_imagery_condition)} zien.
+        </p>
+        <p style="font-size:20px;">
+          Als je straks de sneeuwstorm ziet, probeer dan precies deze <strong>strepen</strong> zo goed mogelijk in je hoofd te zien.
+        </p>
+      </div>
+    `,
+    choices: ['Verder'],
+    data: {
+      phase: 'stripes_intro'
     }
   };
 
@@ -248,29 +376,26 @@
   const total_vividness_trials = 6;
   const hidden_stimulus_opacity = 0.11;
   const vividness_opacities = [0, 0.28, 0.44, 0.60, 0.78];
-  const vividness_imagery_condition = 'right';
-  const main_task_reminder_every_n_trials = 10;
-
   function make_vividness_instruction_trial(trial_index, orientation) {
+    const title_text = trial_index === 1
+      ? 'Zo meteen komt de eerste sneeuwstorm.'
+      : 'Er komt weer een sneeuwstorm.';
+    const prompt_text = trial_index === 1
+      ? `Probeer dan zo goed mogelijk de <strong>strepen</strong> van ${zebraName(orientation)} in te beelden.`
+      : `Beeld opnieuw zo goed mogelijk de <strong>strepen</strong> van ${zebraName(orientation)} in.`;
+
     return {
       type: jsPsychHtmlButtonResponse,
       stimulus: `
         <div style="max-width:850px; margin:0 auto; text-align:center;">
-          <p style="font-size:24px;">Bij de volgende sneeuwstorm is het jouw taak om de strepen van ${zebraName(orientation)} in te beelden.</p>
-          <div style="margin:10px 0 5px 0;">
-            ${zebraImageHTML(orientation, 220)}
-          </div>
-
+          <p style="font-size:24px;">${title_text}</p>
           <p style="font-size:21px;">
-            Dit is <strong>${zebraName(orientation)}</strong>.
-            De strepen van ${zebraName(orientation)} lopen naar <strong>${zebraLabel(orientation)}</strong>.
+            ${prompt_text}
           </p>
-
           <p style="font-size:21px;">
-            Kijk goed naar de strepen hieronder.
-            Dit zijn de strepen die je straks zo goed mogelijk in je hoofd probeert te zien.
+            Kijk nog even goed naar dit stukje van de strepen:
           </p>
-          <div style="margin:18px 0;">
+          <div style="margin:16px 0;">
             <img src="${getGaborFile(orientation)}" style="width:220px; height:220px;">
           </div>
           <p style="font-size:18px; margin-top:18px;">
@@ -282,36 +407,7 @@
       data: {
         phase: "vividness_instruction",
         vividness_trial_index: trial_index,
-        imagined_tilt: orientation,
-        imagined_zebra_name: zebraName(orientation)
-      }
-    };
-  }
-
-  function make_vividness_reminder_trial(trial_index, orientation) {
-    return {
-      type: jsPsychHtmlButtonResponse,
-      stimulus: `
-        <div style="max-width:820px; margin:0 auto; text-align:center;">
-          <p style="font-size:24px;"><strong>Er komt nog een sneeuwstorm</strong></p>
-          <p style="font-size:21px;">
-            Verbeeld opnieuw de strepen van <strong>${zebraName(orientation)}</strong>.
-          </p>
-          <p style="font-size:21px;">
-            Kijk nog even naar de strepen hieronder.
-          </p>
-          <div style="margin:18px 0;">
-            <img src="${getGaborFile(orientation)}" style="width:220px; height:220px;">
-          </div>
-          <p style="font-size:18px;">Klik op <strong>Verder</strong> om door te gaan.</p>
-        </div>
-      `,
-      choices: ['Verder'],
-      data: {
-        phase: "vividness_reminder",
-        vividness_trial_index: trial_index,
-        imagined_tilt: orientation,
-        imagined_zebra_name: zebraName(orientation)
+        imagined_tilt: orientation
       }
     };
   }
@@ -335,7 +431,7 @@
 
         let nth_frame = 0;
 
-        const renderFrame = () => {
+        interval_ID = setInterval(() => {
           canvas.remove(...canvas.getObjects());
           canvas.add(shuffled_noise[nth_frame]);
 
@@ -345,22 +441,14 @@
 
           canvas.renderAll();
           nth_frame = (nth_frame + 1) % shuffled_noise.length;
-        };
-
-        renderFrame();
-
-        interval_ID = setInterval(() => {
-          renderFrame();
         }, vividness_single_frame_duration);
       },
       data: {
         phase: "vividness_noise",
         vividness_trial_index: trial_index,
         imagined_tilt: orientation,
-        imagined_zebra_name: zebraName(orientation),
         hidden_real_stimulus_present: show_hidden_stimulus ? 1 : 0,
-        hidden_real_stimulus_opacity: show_hidden_stimulus ? hidden_stimulus_opacity : 0,
-        hidden_real_stimulus_zebra_name: show_hidden_stimulus ? zebraName(orientation) : "none"
+        hidden_real_stimulus_opacity: show_hidden_stimulus ? hidden_stimulus_opacity : 0
       },
       on_finish: function() {
         clearInterval(interval_ID);
@@ -375,7 +463,7 @@
       type: jsPsychSurveyHtmlForm,
       preamble: `
         <div style="text-align:center; max-width:1000px; margin:0 auto;">
-          <p style="font-size:24px;"><strong>Hoe goed zag je de strepen in de sneeuw?</strong></p>
+          <p style="font-size:24px;"><strong>Hoe duidelijk zag jij de strepen in je hoofd?</strong></p>
           <p style="font-size:18px;">Kies het plaatje dat er het meest op lijkt.</p>
         </div>
       `,
@@ -433,7 +521,6 @@
         phase: "vividness_rating",
         vividness_trial_index: trial_index,
         imagined_tilt: orientation,
-        imagined_zebra_name: zebraName(orientation),
         hidden_real_stimulus_present: show_hidden_stimulus ? 1 : 0
       },
       on_finish: function(data) {
@@ -449,7 +536,7 @@
     preamble: `
       <div style="max-width:900px; margin:0 auto; text-align:center;">
         <p style="font-size:24px;"><strong>Nog één vraag</strong></p>
-        <p style="font-size:20px;">Zag je bij het laatste rondje echt een stukje van Rick in de sneeuw?</p>
+        <p style="font-size:20px;">Zag je bij het laatste rondje echt strepen in de sneeuw?</p>
       </div>
     `,
     html: `
@@ -472,8 +559,7 @@
     button_label: "Verder",
     data: {
       phase: "awareness_check",
-      actual_hidden_stimulus_trial: hidden_stimulus_trial_index,
-      actual_hidden_stimulus_zebra_name: "Rick"
+      actual_hidden_stimulus_trial: hidden_stimulus_trial_index
     },
     on_finish: function(data) {
       const response = data.response;
@@ -487,7 +573,7 @@
   let dynamic_noise_duration = 3000;
   let single_frame_duration = 100;
   let inter_trial_interval = 800;
-  const total_task_duration = main_task_duration_ms;
+  const total_task_duration = 3 * 60 * 1000;
 
   let main_task_start_time = null;
   let running_trial_number = 0;
@@ -519,84 +605,44 @@
     return jsPsych.randomization.sampleWithoutReplacement(['left', 'right', 'absent'], 1)[0];
   }
 
-  const global_imagery_condition = 'right';
+  const global_imagery_condition = vividness_imagery_condition;
+
+  const main_left_gabor = makeFabricGabor(gabor_left_img, 1);
+  const main_right_gabor = makeFabricGabor(gabor_right_img, 1);
 
   function make_global_imagery_instruction(imagery_condition) {
     return {
       type: jsPsychHtmlButtonResponse,
       stimulus: `
-        <div style="max-width:900px; margin:0 auto; text-align:center;">
-          <p style="font-size:24px;"><strong>Klaar voor het echte spel?</strong></p>
+      <div style="max-width:900px; margin:0 auto; text-align:center;">
+        <p style="font-size:24px;"><strong>Nu begint het echte spel</strong></p>
 
           <div style="margin:10px 0 15px 0;">
             ${zebraImageHTML(imagery_condition, 230)}
           </div>
 
           <p style="font-size:20px;">
-            Blijf tijdens alle volgende rondes steeds de strepen van <strong>${zebraName(imagery_condition)}</strong> in je hoofd houden.
+            Blijf tijdens alle volgende rondes de <strong>strepen</strong> naar ${zebraLabel(imagery_condition)} inbeelden.
           </p>
 
           <p style="font-size:20px;">
-            Kijk ook goed naar de strepen hieronder.
-            Dit zijn de strepen die je steeds in je hoofd moet houden.
-          </p>
-
-          <div style="margin:18px 0;">
-            <img src="${getGaborFile(imagery_condition)}" style="width:220px; height:220px;">
-          </div>
-
-          <p style="font-size:20px;">
-            Maar kijk ook goed wie je <strong>echt</strong> door de sneeuw heen ziet.
+            Vanaf nu kan er soms ook <strong>echt een zebra</strong> in de sneeuwstorm staan.
           </p>
 
           <p style="font-size:20px;">
-            Zie je <strong>Lieke</strong>? Dan druk je <strong>links</strong>.
+            Soms zie je die zebra echt een klein beetje.
+            Soms ook niet.
           </p>
 
           <p style="font-size:20px;">
-            Zie je <strong>Rick</strong>? Dan druk je <strong>rechts</strong>.
-          </p>
-
-          <p style="font-size:20px;">
-            Zie je geen zebra? Dan druk je op <strong>omhoog</strong> of <strong>omlaag</strong>.
+            Jij blijft dus de strepen inbeelden, maar kijkt óók goed welke kant de <strong>echte strepen</strong> op staan.
           </p>
         </div>
       `,
       choices: ['Verder'],
       data: {
         phase: 'global_imagery_instruction',
-        imagery_condition: imagery_condition,
-        imagery_zebra_name: zebraName(imagery_condition)
-      }
-    };
-  }
-
-  function make_main_task_reminder_trial(imagery_condition) {
-    return {
-      type: jsPsychHtmlButtonResponse,
-      stimulus: `
-        <div style="max-width:820px; margin:0 auto; text-align:center;">
-          <p style="font-size:24px;"><strong>Even een herinnering</strong></p>
-          <p style="font-size:21px;">
-            Blijf de strepen van <strong>${zebraName(imagery_condition)}</strong> in je hoofd houden.
-          </p>
-          <div style="margin:18px 0;">
-            <img src="${getGaborFile(imagery_condition)}" style="width:220px; height:220px;">
-          </div>
-          <p style="font-size:20px;">
-            Antwoord daarna alleen wie je <strong>echt</strong> in de sneeuw zag.
-          </p>
-          <p style="font-size:18px;">
-            Links = Lieke, rechts = Rick, omhoog of omlaag = geen zebra.
-          </p>
-        </div>
-      `,
-      choices: ['Verder'],
-      data: {
-        phase: 'main_task_reminder',
-        trial_number: running_trial_number,
-        imagery_condition: imagery_condition,
-        imagery_zebra_name: zebraName(imagery_condition)
+        imagery_condition: imagery_condition
       }
     };
   }
@@ -615,9 +661,9 @@
         const external_condition = current_external_condition;
 
         if (external_condition === 'left') {
-          gabor_fabric_img = makeFabricGabor(gabor_left_img, gabor_opacity);
+          gabor_fabric_img = main_left_gabor;
         } else if (external_condition === 'right') {
-          gabor_fabric_img = makeFabricGabor(gabor_right_img, gabor_opacity);
+          gabor_fabric_img = main_right_gabor;
         } else {
           gabor_fabric_img = null;
         }
@@ -632,22 +678,18 @@
 
         let nth_frame = 0;
 
-        const renderFrame = () => {
+        interval_ID = setInterval(() => {
           canvas.remove(...canvas.getObjects());
+
           canvas.add(shuffled_noise_imgs[nth_frame]);
           nth_frame = (nth_frame + 1) % shuffled_noise_imgs.length;
 
           if (external_condition !== 'absent' && gabor_fabric_img !== null) {
+            gabor_fabric_img.opacity = gabor_opacity;
             canvas.add(gabor_fabric_img);
           }
 
           canvas.renderAll();
-        };
-
-        renderFrame();
-
-        interval_ID = setInterval(() => {
-          renderFrame();
 
           delta_times.push(Math.round(performance.now() - timestamp));
           timestamp = performance.now();
@@ -660,9 +702,7 @@
           phase: 'main_trial',
           trial_number: running_trial_number,
           imagery_condition: imagery_condition,
-          imagery_zebra_name: zebraName(imagery_condition),
           external_condition: current_external_condition,
-          external_zebra_name: current_external_condition === 'absent' ? 'none' : zebraName(current_external_condition),
           gabor_opacity: current_external_condition === 'absent' ? 0 : gabor_opacity,
           correct_response: get_correct_response_label(current_external_condition),
           congruency: get_congruency(imagery_condition, current_external_condition),
@@ -702,18 +742,18 @@
     stimulus: `
       <div style="max-width:900px; margin:0 auto; text-align:center;">
         <p style="font-size:24px;"><strong>Nu begint deel 2</strong></p>
-        ${zebraImageHTML('left', 180)}
+        ${zebraImageHTML(oppositeOrientation(global_imagery_condition), 220)}
         <p style="font-size:20px;">
-          Dit is <strong>Lieke</strong>.
+          Dit is zebra <strong>${zebraName(oppositeOrientation(global_imagery_condition))}</strong>.
         </p>
         <p style="font-size:20px;">
-          Lieke heeft strepen naar <strong>links</strong>.
+          De strepen van ${zebraName(oppositeOrientation(global_imagery_condition))} lopen naar <strong>${zebraLabel(oppositeOrientation(global_imagery_condition))}</strong>.
         </p>
         <p style="font-size:20px;">
-          Vanaf nu kan er in de sneeuwstorm soms echt een stukje van <strong>Rick</strong> of <strong>Lieke</strong> verstopt zitten.
+          Jij blijft nog steeds de strepen van <strong>${zebraName(global_imagery_condition)}</strong> inbeelden.
         </p>
         <p style="font-size:20px;">
-          Jij blijft nog steeds je best doen om de strepen van <strong>Rick</strong> in je hoofd te houden.
+          Maar nu kan er soms ook <strong>echt een zebra</strong> in de sneeuwstorm staan: ${zebraName(global_imagery_condition)} of ${zebraName(oppositeOrientation(global_imagery_condition))}.
         </p>
       </div>
     `,
@@ -721,30 +761,75 @@
     data: { phase: 'general_instruction' }
   };
 
-  const part_two_rules = {
+  const example_left_screen = {
     type: jsPsychHtmlButtonResponse,
     stimulus: `
       <div style="max-width:900px; margin:0 auto; text-align:center;">
-        <p style="font-size:24px;"><strong>Onthoud dit goed</strong></p>
+        <p style="font-size:24px;"><strong>Voorbeeld 1</strong></p>
 
-        <p style="font-size:20px;">Blijf de strepen van Rick inbeelden:</p>
-        <div style="margin:18px 0;">
-          <img src="${getGaborFile('right')}" style="width:220px; height:220px;">
-        </div>
+        <p style="font-size:20px;">
+          Als je een zebra ziet met strepen naar <strong>LINKS</strong>, druk je op de
+          <strong>linkerpijl</strong>.
+        </p>
 
-        <div style="display:flex; justify-content:center; gap:40px; flex-wrap:wrap; align-items:flex-start; margin:20px 0;">
-          <div style="text-align:center; max-width:280px;">
-            ${zebraImageHTML('left', 180)}
-            <p style="font-size:18px; margin:10px 0 0 0;"><strong>Linkerpijl = Lieke</strong></p>
+        <div style="display:flex; justify-content:center; align-items:center; gap:36px; flex-wrap:wrap; margin:16px 0;">
+          <div>
+            ${zebraImageHTML('left', 220)}
           </div>
-          <div style="text-align:center; max-width:280px;">
-            ${zebraImageHTML('right', 180)}
-            <p style="font-size:18px; margin:10px 0 0 0;"><strong>Rechterpijl = Rick</strong></p>
+          <div>
+            <img src="imgs/gabor_left.png" style="width:220px; height:220px;">
           </div>
         </div>
 
-        <p style="font-size:20px;"><strong>Omhoog of omlaag</strong> = ik zag geen zebra</p>
-        <p style="font-size:20px;">Blijf de strepen van Rick inbeelden, maar antwoord alleen wie je <strong>echt</strong> zag.</p>
+        <p style="font-size:18px;">
+          Dus, strepen zo = <strong>Linkerpijl</strong>
+        </p>
+      </div>
+    `,
+    choices: ['Verder'],
+    data: { phase: 'orientation_example_left' }
+  };
+
+  const example_right_screen = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+      <div style="max-width:900px; margin:0 auto; text-align:center;">
+        <p style="font-size:24px;"><strong>Voorbeeld 2</strong></p>
+
+        <p style="font-size:20px;">
+          Als je een zebra ziet met strepen naar <strong>RECHTS</strong>, druk je op de
+          <strong>rechterpijl</strong>.
+        </p>
+
+        <div style="display:flex; justify-content:center; align-items:center; gap:36px; flex-wrap:wrap; margin:16px 0;">
+          <div>
+            ${zebraImageHTML('right', 220)}
+          </div>
+          <div>
+            <img src="imgs/gabor_right.png" style="width:220px; height:220px;">
+          </div>
+        </div>
+
+        <p style="font-size:18px;">
+          Dus, strepen zo = <strong>rechterpijl</strong>
+        </p>
+      </div>
+    `,
+    choices: ['Verder'],
+    data: { phase: 'orientation_example_right' }
+  };
+
+  const response_instruction = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+      <div style="max-width:900px; margin:0 auto; text-align:center;">
+        <p style="font-size:24px;"><strong>Wat is nu jouw taak?</strong></p>
+
+        <p style="font-size:20px;">Blijf de strepen van <strong>${zebraName(global_imagery_condition)}</strong> inbeelden.</p>
+        <p style="font-size:20px;">Kijk tegelijk goed welke zebra je <strong>echt</strong> ziet in de sneeuw.</p>
+        <p style="font-size:20px;"><strong>Linkerpijl</strong> = strepen naar LINKS</p>
+        <p style="font-size:20px;"><strong>Rechterpijl</strong> = strepen naar RECHTS</p>
+        <p style="font-size:20px;"><strong>Pijl omhoog of omlaag</strong> = ik zag geen zebra!</p>
 
         <p style="font-size:24px; margin-top:18px;">
           Druk zo snel mogelijk maar probeer geen fouten te maken!
@@ -752,7 +837,7 @@
       </div>
     `,
     choices: ['Verder'],
-    data: { phase: 'part_two_rules' }
+    data: { phase: 'general_instruction' }
   };
 
   const start_main = {
@@ -760,7 +845,7 @@
     stimulus: `
       <div style="max-width:800px; margin:0 auto; text-align:center;">
         <p style="font-size:24px;"><strong>Klaar?</strong></p>
-        <p style="font-size:20px;">Nu begint het echte spel. Succes!</p>
+        <p style="font-size:20px;">Nu begint het echte spel. Success!</p>
       </div>
     `,
     choices: ['Start het spel'],
@@ -799,12 +884,6 @@
         data: { phase: 'increment_trial_counter' }
       },
       {
-        timeline: [make_main_task_reminder_trial(global_imagery_condition)],
-        conditional_function: function() {
-          return running_trial_number > 1 && (running_trial_number - 1) % main_task_reminder_every_n_trials === 0;
-        }
-      },
-      {
         timeline: [make_trial_divider()],
         conditional_function: function() {
           return running_trial_number > 1;
@@ -819,8 +898,7 @@
           return {
             phase: 'sample_external_condition',
             trial_number: running_trial_number,
-            sampled_external_condition: current_external_condition,
-            sampled_external_zebra_name: current_external_condition === 'absent' ? 'none' : zebraName(current_external_condition)
+            sampled_external_condition: current_external_condition
           };
         }
       },
@@ -837,35 +915,25 @@
   };
 
 //TIMELINE
-  const timeline = [preload];
+  const timeline = [preload, demographics, zebra_intro, snowstorm_intro, stripes_intro];
 
-  if (!debug_skip_to_part_two) {
-    timeline.push(demographics);
-    timeline.push(zebra_intro);
+  for (let t = 0; t < total_vividness_trials; t++) {
+    const trial_index = t + 1;
+    const orientation = vividness_imagery_condition;
+    const show_hidden_stimulus = (trial_index === hidden_stimulus_trial_index);
 
-    for (let t = 0; t < total_vividness_trials; t++) {
-      const trial_index = t + 1;
-      const orientation = vividness_imagery_condition;
-      const show_hidden_stimulus = (trial_index === hidden_stimulus_trial_index);
-
-      if (trial_index === 1) {
-        timeline.push(make_vividness_instruction_trial(trial_index, orientation));
-      } else {
-        timeline.push(make_vividness_reminder_trial(trial_index, orientation));
-      }
-      timeline.push(make_vividness_noise_trial(trial_index, orientation, show_hidden_stimulus));
-      timeline.push(make_vividness_rating_trial(trial_index, orientation, show_hidden_stimulus));
-    }
-
-    timeline.push(awareness_check);
-  } else {
-    jsPsych.data.addProperties({
-      debug_skip_to_part_two: 1
-    });
+    timeline.push(make_vividness_instruction_trial(trial_index, orientation));
+    timeline.push(make_vividness_noise_trial(trial_index, orientation, show_hidden_stimulus));
+    timeline.push(make_vividness_rating_trial(trial_index, orientation, show_hidden_stimulus));
   }
 
+  timeline.push(awareness_check);
+
   timeline.push(welcome);
-  timeline.push(part_two_rules);
+  timeline.push(example_left_screen);
+  timeline.push(example_right_screen);
+  timeline.push(response_instruction);
+  timeline.push(make_global_imagery_instruction(global_imagery_condition));
   timeline.push(start_main);
   timeline.push(mark_main_task_start);
   timeline.push(timed_main_task);
