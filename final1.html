@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html>
 <head>
   <title>Zebra in de sneeuwstorm</title>
@@ -63,18 +63,41 @@
   const subject_id = Math.random().toString(36).substring(2, 12);
   const filename = `${subject_id}.csv`;
 
+  // Start jsPsych and save the collected data locally when the experiment ends.
   const jsPsych = initJsPsych({
     on_finish: () => {
       jsPsych.data.get().localSave('csv', filename);
     }
   });
 
+  // Shared selectors for continue buttons and buttons that should show a <spatie> hint.
+  const continue_button_selector = 'button.jspsych-btn:not([disabled]), input.jspsych-btn[type="button"]:not([disabled]), input.jspsych-btn[type="submit"]:not([disabled]), input[type="submit"]:not([disabled])';
+  const space_hint_button_selector = 'button.jspsych-btn, input.jspsych-btn[type="button"], input.jspsych-btn[type="submit"], input[type="submit"]';
+
+  // Find the current continue button so Space can trigger it.
   function getContinueButton() {
-    return document.querySelector(
-      'button.jspsych-btn:not([disabled]), input.jspsych-btn[type="button"]:not([disabled]), input.jspsych-btn[type="submit"]:not([disabled]), input[type="submit"]:not([disabled])'
-    );
+    return document.querySelector(continue_button_selector);
   }
 
+  // Check whether an element is a button that should receive the visible <spatie> hint.
+  function isSpaceHintTarget(element) {
+    return element.matches(space_hint_button_selector);
+  }
+
+  // Wrap a button and add a small text hint underneath it.
+  function addSpaceHintToButton(button) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'jspsych-space-wrapper';
+    button.insertAdjacentElement('beforebegin', wrapper);
+    wrapper.appendChild(button);
+
+    const hint = document.createElement('div');
+    hint.className = 'jspsych-space-hint';
+    hint.textContent = '<spatie>';
+    wrapper.appendChild(hint);
+  }
+
+  // Let participants press Space instead of clicking a visible continue button.
   document.addEventListener('keydown', function(event) {
     const active_element = document.activeElement;
     const active_tag = active_element ? active_element.tagName : '';
@@ -92,16 +115,9 @@
     }
   });
 
-  function isSpaceHintTarget(element) {
-    return element.matches(
-      'button.jspsych-btn, input.jspsych-btn[type="button"], input.jspsych-btn[type="submit"], input[type="submit"]'
-    );
-  }
-
+  // Add the <spatie> hint to any new buttons that jsPsych renders.
   function ensureSpaceHints() {
-    const buttons = document.querySelectorAll(
-      'button.jspsych-btn, input.jspsych-btn[type="button"], input.jspsych-btn[type="submit"], input[type="submit"]'
-    );
+    const buttons = document.querySelectorAll(space_hint_button_selector);
 
     buttons.forEach((button) => {
       if (
@@ -118,18 +134,11 @@
         return;
       }
 
-      const wrapper = document.createElement('div');
-      wrapper.className = 'jspsych-space-wrapper';
-      button.insertAdjacentElement('beforebegin', wrapper);
-      wrapper.appendChild(button);
-
-      const hint = document.createElement('div');
-      hint.className = 'jspsych-space-hint';
-      hint.textContent = '<spatie>';
-      wrapper.appendChild(hint);
+      addSpaceHintToButton(button);
     });
   }
 
+  // Watch for new DOM nodes so hints are added automatically on newly rendered screens.
   function setupSpaceHintObserver() {
     let update_scheduled = false;
 
@@ -148,9 +157,7 @@
           if (!(node instanceof HTMLElement)) return false;
           if (node.classList.contains('jspsych-space-hint')) return false;
           if (node.classList.contains('jspsych-space-wrapper')) return false;
-          return isSpaceHintTarget(node) || !!node.querySelector?.(
-            'button.jspsych-btn, input.jspsych-btn[type="button"], input.jspsych-btn[type="submit"], input[type="submit"]'
-          );
+          return isSpaceHintTarget(node) || !!node.querySelector?.(space_hint_button_selector);
         });
       });
 
@@ -173,8 +180,10 @@
     setupSpaceHintObserver();
   }
 
+  // Randomize once per participant which stripe direction they imagine in both parts.
   const vividness_imagery_condition = jsPsych.randomization.sampleWithoutReplacement(['right', 'left'], 1)[0];
 
+  // Save participant-level metadata once so it is attached to all later trials.
   jsPsych.data.addProperties({
     participantID: subject_id,
     filename: filename,
@@ -185,11 +194,12 @@
     vividness_imagery_condition: vividness_imagery_condition
   });
 
-
+  // Shared image and canvas settings used throughout the experiment.
   const canvas_size = [400, 400];
   const noise_imgs_dim = [250, 250];
   const gabor_img_dim = [250, 250];
 
+  // Pre-create the noise images so the animated snowstorm trials render quickly.
   const noise_files = [];
   const fabric_noise_imgs = [];
 
@@ -213,6 +223,7 @@
     fabric_noise_imgs.push(fabric_img);
   }
 
+  // The left and right gabor images represent the stripe directions.
   const gabor_left_img = new Image();
   gabor_left_img.src = 'imgs/gabor_left.png';
 
@@ -241,6 +252,7 @@
     return gabor;
   }
 
+  // Preload all image assets before the experiment starts.
   const preload = {
     type: jsPsychPreload,
     images: [...noise_files, 'imgs/gabor_left.png', 'imgs/gabor_right.png', 'imgs/Lieke.png'],
@@ -249,9 +261,10 @@
     }
   };
 
-  // =====================================================
+
   // HULPFUNCTIES VOOR UITLEG
-  // =====================================================
+ 
+
   function zebraLabel(orientation) {
     return orientation === 'left' ? 'LINKS' : 'RECHTS';
   }
@@ -264,10 +277,7 @@
     return orientation === 'left' ? 'right' : 'left';
   }
 
-  function arrowLabel(orientation) {
-    return orientation === 'left' ? 'linkerpijl' : 'rechterpijl';
-  }
-
+  // Render the zebra image for the correct direction; right-facing is a mirrored Lieke image.
   function zebraImageHTML(orientation, width = 220) {
     const transform = orientation === 'right' ? 'scaleX(-1)' : 'scaleX(1)';
     const alt = zebraName(orientation);
@@ -281,6 +291,7 @@
     `;
   }
 
+  // static snow image
   function snowstormImageHTML(width = 260) {
     return `
       <img 
@@ -291,9 +302,20 @@
     `;
   }
 
-  // =====================================================
+  // Fake button 
+  function arrowContinueHTML(label) {
+    return `
+      <div style="margin-top:22px; display:flex; justify-content:center;">
+        <div class="jspsych-btn" style="pointer-events:none;">
+          ${label}
+        </div>
+      </div>
+    `;
+  }
+
+ 
   // DEMOGRAFIE
-  // =====================================================
+
   const demographics = {
     type: jsPsychSurveyHtmlForm,
     preamble: `
@@ -411,12 +433,14 @@
   };
 
 //deel 1
+
   const vividness_single_frame_duration = 100;
   const vividness_noise_duration = 2000;
   const hidden_stimulus_trial_index = 6;
   const total_vividness_trials = 6;
   const hidden_stimulus_opacity = 0.11;
   const vividness_opacities = [0, 0.28, 0.44, 0.60, 0.78];
+  // Reminder screen shown before each vividness trial.
   function make_vividness_instruction_trial(trial_index, orientation) {
     const title_text = trial_index === 1
       ? 'Zo meteen komt de eerste sneeuwstorm.'
@@ -506,6 +530,7 @@
     };
   }
 
+  // Rating screen 
   function make_vividness_rating_trial(trial_index, orientation, show_hidden_stimulus = false) {
     const gabor_file = getGaborFile(orientation);
 
@@ -586,6 +611,7 @@
     };
   }
 
+  // perky test
   const awareness_check = {
     type: jsPsychSurveyHtmlForm,
     preamble: `
@@ -630,6 +656,7 @@
   };
 
 //DEEL 2
+  // Timing and state variables
   let dynamic_noise_duration = 3000;
   let single_frame_duration = 100;
   let inter_trial_interval = 800;
@@ -641,6 +668,7 @@
 
   const target_opacity = 0.11;
 
+  // experiment's response labels.
   function key_to_response(key_press) {
     if (key_press === 'ArrowLeft') return 'left';
     if (key_press === 'ArrowRight') return 'right';
@@ -648,6 +676,7 @@
     return 'no_response';
   }
 
+  //  correct answer
   function get_correct_response_label(external_condition) {
     if (external_condition === 'left') return 'left';
     if (external_condition === 'right') return 'right';
@@ -661,15 +690,23 @@
     return 'incongruent';
   }
 
-  function sample_external_condition() {
+  function sampleExternalCondition() {
     return jsPsych.randomization.sampleWithoutReplacement(['left', 'right', 'absent'], 1)[0];
   }
 
+  // Keep the same imagined stripe direction in part 2 as in part 1.
   const global_imagery_condition = vividness_imagery_condition;
 
   const main_left_gabor = makeFabricGabor(gabor_left_img, 1);
   const main_right_gabor = makeFabricGabor(gabor_right_img, 1);
 
+  function getMainTaskGabor(external_condition) {
+    if (external_condition === 'left') return main_left_gabor;
+    if (external_condition === 'right') return main_right_gabor;
+    return null;
+  }
+
+  // Last transition screen
   function make_global_imagery_instruction(imagery_condition) {
     return {
       type: jsPsychHtmlButtonResponse,
@@ -695,7 +732,7 @@
           </p>
 
           <p style="font-size:20px;">
-            Jij blijft dus de strepen inbeelden, maar kijkt óók goed welke kant de <strong>echte strepen</strong> op staan.
+            Jij blijft dus de strepen inbeelden, maar kijkt ook goed welke kant de <strong>echte strepen</strong> op staan.
           </p>
         </div>
       `,
@@ -711,7 +748,8 @@
     };
   }
 
-  function make_dynamic_trial(imagery_condition, gabor_opacity, noise_duration = null) {
+  // Shared snowstorm-response engine used by both practice trials and real trials.
+  function makeSnowstormResponseTrial(config) {
     let interval_ID;
     let timestamp;
     let delta_times = [];
@@ -720,22 +758,15 @@
     return {
       type: jsPsychCanvasKeyboardResponse,
       canvas_size: canvas_size,
-      trial_duration: noise_duration,
+      trial_duration: config.trial_duration,
       save_trial_parameters: {
         stimulus: false,
         choices: false,
         canvas_size: false
       },
       stimulus: function() {
-        const external_condition = current_external_condition;
-
-        if (external_condition === 'left') {
-          gabor_fabric_img = main_left_gabor;
-        } else if (external_condition === 'right') {
-          gabor_fabric_img = main_right_gabor;
-        } else {
-          gabor_fabric_img = null;
-        }
+        const external_condition = config.getExternalCondition();
+        gabor_fabric_img = getMainTaskGabor(external_condition);
 
         let shuffled_noise_imgs = jsPsych.randomization.shuffle([...fabric_noise_imgs]);
 
@@ -754,7 +785,7 @@
           nth_frame = (nth_frame + 1) % shuffled_noise_imgs.length;
 
           if (external_condition !== 'absent' && gabor_fabric_img !== null) {
-            gabor_fabric_img.opacity = gabor_opacity;
+            gabor_fabric_img.opacity = config.getGaborOpacity(external_condition);
             canvas.add(gabor_fabric_img);
           }
 
@@ -766,6 +797,31 @@
       },
       choices: ['ArrowLeft', 'ArrowDown', 'ArrowUp', 'ArrowRight'],
       response_ends_trial: true,
+      data: config.data,
+      on_finish: function(data) {
+        clearInterval(interval_ID);
+
+        data.frame_times = JSON.stringify(delta_times);
+        data.n_recorded_frames = delta_times.length;
+        data.response_label = key_to_response(data.response);
+        data.correct = data.response_label === data.correct_response ? 1 : 0;
+        if (typeof config.onFinishExtra === 'function') {
+          config.onFinishExtra(data);
+        }
+      }
+    };
+  }
+
+  // Real main-task trial
+  function make_dynamic_trial(imagery_condition, gabor_opacity, noise_duration = null) {
+    return makeSnowstormResponseTrial({
+      trial_duration: noise_duration,
+      getExternalCondition: function() {
+        return current_external_condition;
+      },
+      getGaborOpacity: function(external_condition) {
+        return external_condition === 'absent' ? 0 : gabor_opacity;
+      },
       data: function() {
         return {
           phase: 'main_trial',
@@ -779,18 +835,13 @@
           single_frame_duration: single_frame_duration
         };
       },
-      on_finish: function(data) {
-        clearInterval(interval_ID);
-
-        data.frame_times = JSON.stringify(delta_times);
-        data.n_recorded_frames = delta_times.length;
-        data.response_label = key_to_response(data.response);
-        data.correct = data.response_label === data.correct_response ? 1 : 0;
+      onFinishExtra: function(data) {
         data.elapsed_main_task_time_ms = Math.round(performance.now() - main_task_start_time);
       }
-    };
+    });
   }
 
+  // fixation screen
   function make_trial_divider() {
     return {
       type: jsPsychHtmlKeyboardResponse,
@@ -810,6 +861,7 @@
     };
   }
 
+  // Reminder screen
   function make_main_task_reminder(imagery_condition) {
     return {
       type: jsPsychHtmlButtonResponse,
@@ -842,6 +894,106 @@
     };
   }
 
+  // Practice trials opacity
+  const practice_trial_opacity = 0.45;
+
+  // Intro to the two practice trials
+  const part_two_practice_intro = {
+    type: jsPsychHtmlButtonResponse,
+    stimulus: `
+      <div style="max-width:900px; margin:0 auto; text-align:center;">
+        <p style="font-size:24px;"><strong>Eerst twee oefenrondjes</strong></p>
+        <p style="font-size:20px;">
+          In deze oefenrondjes zie je de zebra iets duidelijker dan straks in het echte spel.
+        </p>
+        <p style="font-size:20px;">
+          Blijf de <strong>strepen</strong> van <strong>${zebraName(global_imagery_condition)}</strong> inbeelden:
+        </p>
+        <div style="margin:18px 0;">
+          <img src="${getGaborFile(global_imagery_condition)}" style="width:220px; height:220px;" alt="strepen van ${zebraName(global_imagery_condition)}">
+        </div>
+        <p style="font-size:20px;">
+          Maar je antwoord gaat over de zebra die je <strong>echt</strong> in de sneeuw ziet.
+        </p>
+      </div>
+    `,
+    choices: ['Verder'],
+    save_trial_parameters: {
+      stimulus: false,
+      choices: false
+    },
+    data: { phase: 'part_two_practice_intro' }
+  };
+
+  // Practice version of the snowstorm task with fixed left/right examples.
+  function make_practice_trial(imagery_condition, external_condition) {
+    return makeSnowstormResponseTrial({
+      trial_duration: dynamic_noise_duration,
+      getExternalCondition: function() {
+        return external_condition;
+      },
+      getGaborOpacity: function() {
+        return practice_trial_opacity;
+      },
+      data: {
+        phase: 'practice_trial',
+        imagery_condition: imagery_condition,
+        external_condition: external_condition,
+        gabor_opacity: practice_trial_opacity,
+        correct_response: get_correct_response_label(external_condition),
+        congruency: get_congruency(imagery_condition, external_condition),
+        noise_duration: dynamic_noise_duration,
+        single_frame_duration: single_frame_duration
+      }
+    });
+  }
+
+  // Immediate feedback after each practice trial
+  function make_practice_feedback_trial(external_condition) {
+    return {
+      type: jsPsychHtmlButtonResponse,
+      stimulus: function() {
+        const last_trial = jsPsych.data.get().last(1).values()[0];
+        const was_correct = last_trial.correct === 1;
+        const correct_label = external_condition === 'left' ? 'LINKS' : 'RECHTS';
+        const correct_key = external_condition === 'left' ? 'linkerpijl' : 'rechterpijl';
+        const zebra_name = zebraName(external_condition);
+
+        return `
+          <div style="max-width:900px; margin:0 auto; text-align:center;">
+            <p style="font-size:24px;"><strong>${was_correct ? 'Goed gedaan!' : 'Bijna!'}</strong></p>
+            <p style="font-size:20px;">
+              Dit was <strong>${zebra_name}</strong>.
+            </p>
+            <p style="font-size:20px;">
+              De strepen stonden naar <strong>${correct_label}</strong>.
+            </p>
+            <p style="font-size:20px;">
+              Het goede antwoord was dus de <strong>${correct_key}</strong>.
+            </p>
+            <div style="display:flex; justify-content:center; align-items:center; gap:36px; flex-wrap:wrap; margin:16px 0;">
+              <div>
+                ${zebraImageHTML(external_condition, 220)}
+              </div>
+              <div>
+                <img src="${getGaborFile(external_condition)}" style="width:220px; height:220px;" alt="strepen van ${zebra_name}">
+              </div>
+            </div>
+          </div>
+        `;
+      },
+      choices: ['Verder'],
+      save_trial_parameters: {
+        stimulus: false,
+        choices: false
+      },
+      data: {
+        phase: 'practice_feedback',
+        external_condition: external_condition
+      }
+    };
+  }
+
   const welcome = {
     type: jsPsychHtmlButtonResponse,
     stimulus: `
@@ -870,8 +1022,9 @@
     data: { phase: 'general_instruction' }
   };
 
+  // Keyboard-only example for the left response mapping.
   const example_left_screen = {
-    type: jsPsychHtmlButtonResponse,
+    type: jsPsychHtmlKeyboardResponse,
     stimulus: `
       <div style="max-width:900px; margin:0 auto; text-align:center;">
         <p style="font-size:24px;"><strong>Voorbeeld 1</strong></p>
@@ -893,9 +1046,14 @@
         <p style="font-size:18px;">
           Dus, strepen zo = <strong>Linkerpijl</strong>
         </p>
+
+        <p style="font-size:20px; margin-top:18px;">
+          Druk nu op de <strong>linkerpijl</strong> om verder te gaan.
+        </p>
+        ${arrowContinueHTML('Linkerpijl')}
       </div>
     `,
-    choices: ['Verder'],
+    choices: ['ArrowLeft'],
     save_trial_parameters: {
       stimulus: false,
       choices: false
@@ -903,8 +1061,9 @@
     data: { phase: 'orientation_example_left' }
   };
 
+  // Keyboard-only example for the right response mapping.
   const example_right_screen = {
-    type: jsPsychHtmlButtonResponse,
+    type: jsPsychHtmlKeyboardResponse,
     stimulus: `
       <div style="max-width:900px; margin:0 auto; text-align:center;">
         <p style="font-size:24px;"><strong>Voorbeeld 2</strong></p>
@@ -926,9 +1085,14 @@
         <p style="font-size:18px;">
           Dus, strepen zo = <strong>rechterpijl</strong>
         </p>
+
+        <p style="font-size:20px; margin-top:18px;">
+          Druk nu op de <strong>rechterpijl</strong> om verder te gaan.
+        </p>
+        ${arrowContinueHTML('Rechterpijl')}
       </div>
     `,
-    choices: ['Verder'],
+    choices: ['ArrowRight'],
     save_trial_parameters: {
       stimulus: false,
       choices: false
@@ -936,37 +1100,13 @@
     data: { phase: 'orientation_example_right' }
   };
 
-  const response_instruction = {
-    type: jsPsychHtmlButtonResponse,
-    stimulus: `
-      <div style="max-width:900px; margin:0 auto; text-align:center;">
-        <p style="font-size:24px;"><strong>Wat is nu jouw taak?</strong></p>
-
-        <p style="font-size:20px;">Blijf de strepen van <strong>${zebraName(global_imagery_condition)}</strong> inbeelden.</p>
-        <p style="font-size:20px;">Kijk tegelijk goed welke zebra je <strong>echt</strong> ziet in de sneeuw.</p>
-        <p style="font-size:20px;"><strong>Linkerpijl</strong> = strepen naar LINKS</p>
-        <p style="font-size:20px;"><strong>Rechterpijl</strong> = strepen naar RECHTS</p>
-        <p style="font-size:20px;"><strong>Pijl omhoog of omlaag</strong> = ik zag geen zebra!</p>
-
-        <p style="font-size:24px; margin-top:18px;">
-          Druk zo snel mogelijk maar probeer geen fouten te maken!
-        </p>
-      </div>
-    `,
-    choices: ['Verder'],
-    save_trial_parameters: {
-      stimulus: false,
-      choices: false
-    },
-    data: { phase: 'general_instruction' }
-  };
-
+  // Start screen
   const start_main = {
     type: jsPsychHtmlButtonResponse,
     stimulus: `
       <div style="max-width:800px; margin:0 auto; text-align:center;">
         <p style="font-size:24px;"><strong>Klaar?</strong></p>
-        <p style="font-size:20px;">Nu begint het echte spel. Success!</p>
+        <p style="font-size:20px;">Nu begint het echte spel. Succes!</p>
       </div>
     `,
     choices: ['Start het spel'],
@@ -977,6 +1117,21 @@
     data: { phase: 'start_main' }
   };
 
+  // Group all part-2 instruction and practice screens
+  const part_two_instruction_timeline = [
+    welcome,
+    example_left_screen,
+    example_right_screen,
+    part_two_practice_intro,
+    make_practice_trial(global_imagery_condition, 'left'),
+    make_practice_feedback_trial('left'),
+    make_practice_trial(global_imagery_condition, 'right'),
+    make_practice_feedback_trial('right'),
+    make_global_imagery_instruction(global_imagery_condition),
+    start_main
+  ];
+
+  // Mark the start time of the real main-task block
   const mark_main_task_start = {
     type: jsPsychCallFunction,
     func: function() {
@@ -989,6 +1144,7 @@
     data: { phase: 'mark_main_task_start' }
   };
 
+  // Final thank-you
   const end_screen = {
     type: jsPsychHtmlButtonResponse,
     stimulus: `
@@ -1006,6 +1162,7 @@
     data: { phase: 'end_screen' }
   };
 
+  // Repeat the real part-2 trial loop until the total task duration has elapsed.
   const timed_main_task = {
     timeline: [
       {
@@ -1033,7 +1190,7 @@
       {
         type: jsPsychCallFunction,
         func: function() {
-          current_external_condition = sample_external_condition();
+          current_external_condition = sampleExternalCondition();
         },
         save_trial_parameters: {
           func: false
@@ -1059,7 +1216,7 @@
   };
 
 //TIMELINE
-  const timeline = [preload, demographics, zebra_intro, snowstorm_intro, stripes_intro];
+  const timeline = [preload,demographics, zebra_intro, snowstorm_intro, stripes_intro];
 
   for (let t = 0; t < total_vividness_trials; t++) {
     const trial_index = t + 1;
@@ -1073,12 +1230,7 @@
 
   timeline.push(awareness_check);
 
-  timeline.push(welcome);
-  timeline.push(example_left_screen);
-  timeline.push(example_right_screen);
-  timeline.push(response_instruction);
-  timeline.push(make_global_imagery_instruction(global_imagery_condition));
-  timeline.push(start_main);
+  timeline.push(...part_two_instruction_timeline);
   timeline.push(mark_main_task_start);
   timeline.push(timed_main_task);
   timeline.push(end_screen);
